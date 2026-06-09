@@ -1,43 +1,11 @@
 import "server-only";
 
 import { revalidatePath } from "next/cache";
-import * as XLSX from "xlsx";
-import { getAIProvider } from "@/lib/ai/providers";
-import {
-  insertBoqAssumption,
-  insertBoqItem,
-  insertBoqQuery,
-  updateAgentJob
-} from "@/lib/db/boq";
+import { headers } from "next/headers";
+import { updateAgentJob } from "@/lib/db/boq";
 import { getSql } from "@/lib/db/client";
 import { getProjectFiles } from "@/lib/db/files";
-import { getRules } from "@/lib/db/rules";
-import { getProjectTemplates } from "@/lib/db/templates";
-import {
-  boqGeneratorSystemPrompt,
-  buildBoqGeneratorUserPrompt
-} from "@/prompts/boq-generator";
-import type { ProjectRow, ReviewStatus } from "@/lib/db/types";
-
-type GenerationResult = {
-  boq_items?: Array<{
-    item_no?: string;
-    section: string;
-    trade: string;
-    item_type: string;
-    description: string;
-    unit: string;
-    source_reference?: string;
-    confidence_score?: number;
-    review_status?: "draft" | "needs_review";
-  }>;
-  assumptions?: Array<{ assumption: string; source_reference?: string }>;
-  queries?: Array<{
-    issue: string;
-    clarification_needed: string;
-    source_reference?: string;
-  }>;
-};
+import type { ProjectRow } from "@/lib/db/types";
 
 async function getProjectById(projectId: string): Promise<ProjectRow | null> {
   const sql = getSql();
@@ -45,54 +13,6 @@ async function getProjectById(projectId: string): Promise<ProjectRow | null> {
     select * from projects where id = ${projectId} limit 1
   `) as ProjectRow[];
   return rows[0] ?? null;
-}
-
-async function extractFileText(
-  storageUrl: string,
-  mimeType: string | null,
-  fileName: string
-): Promise<string> {
-  try {
-    const resp = await fetch(storageUrl);
-    if (!resp.ok) return `[File: ${fileName} — fetch failed]`;
-
-    const ct = (mimeType ?? resp.headers.get("content-type") ?? "").toLowerCase();
-    const name = fileName.toLowerCase();
-
-    // Excel
-    if (
-      ct.includes("spreadsheet") ||
-      ct.includes("excel") ||
-      name.endsWith(".xlsx") ||
-      name.endsWith(".xls")
-    ) {
-      const buf = await resp.arrayBuffer();
-      const wb = XLSX.read(buf);
-      return wb.SheetNames.map(
-        (s) => `Sheet: ${s}\n${XLSX.utils.sheet_to_csv(wb.Sheets[s])}`
-      ).join("\n\n");
-    }
-
-    // CSV / plain text
-    if (ct.includes("text") || name.endsWith(".txt") || name.endsWith(".csv")) {
-      const text = await resp.text();
-      return text.slice(0, 10000);
-    }
-
-    // PDF — best-effort readable-text extraction
-    if (ct.includes("pdf") || name.endsWith(".pdf")) {
-      const raw = await resp.text();
-      const readable = raw.replace(/[^\x20-\x7E\n\r]/g, " ").replace(/\s+/g, " ").trim();
-      if (readable.length > 200) {
-        return `[PDF: ${fileName}]\n${readable.slice(0, 8000)}`;
-      }
-      return `[PDF: ${fileName} — binary, using filename as context only]`;
-    }
-
-    return `[File: ${fileName}, type: ${ct}]`;
-  } catch {
-    return `[File: ${fileName} — extraction error]`;
-  }
 }
 
 export async function runBoqGeneration(projectId: string, jobId: string): Promise<void> {
@@ -103,132 +23,180 @@ export async function runBoqGeneration(projectId: string, jobId: string): Promis
       progress: 5
     });
 
-    const [project, allFiles, rules, templates] = await Promise.all([
+    const [project, allFiles] = await Promise.all([
       getProjectById(projectId),
-      getProjectFiles(projectId),
-      getRules({ projectId }),
-      getProjectTemplates(projectId)
+      getProjectFiles(projectId)
     ]);
 
     if (!project) throw new Error("Project not found.");
 
-    const sourceFiles = allFiles.filter((f) => f.file_type === "source_document");
-
     await updateAgentJob(jobId, {
       status: "running",
-      currentStep: `Extracting content from ${sourceFiles.length} document(s)`,
-      progress: 20
+      currentStep: "Identifying target trades",
+      progress: 15
     });
 
-    const sourceChunks: string[] = [];
-    for (const file of sourceFiles) {
-      const text = await extractFileText(file.storage_url, file.mime_type, file.file_name);
-      const label = [file.document_type, file.file_name].filter(Boolean).join(" — ");
-      sourceChunks.push(`=== ${label} ===\n${text}`);
+    const sql = getSql();
+    // Dynamically retrieve trades associated with this project standard and scope from rules
+    const uniqueTrades = (await sql`
+      select distinct trade
+      from boq_rules
+      where measurement_standard = ${project.measurement_standard}
+        and scope = ${project.scope}
+    `) as Array<{ trade: string }>;
+
+    let trades = uniqueTrades.map((r) => r.trade);
+
+    // Fallback if no scope-specific rules found
+    if (trades.length === 0) {
+      const fallbackTrades = (await sql`
+        select distinct trade
+        from boq_rules
+        where measurement_standard = ${project.measurement_standard}
+      `) as Array<{ trade: string }>;
+      trades = fallbackTrades.map((r) => r.trade);
     }
 
-    const noSourceDocs = sourceChunks.length === 0;
-    if (noSourceDocs) {
-      sourceChunks.push(
-        `Project: ${project.name}\nType: ${project.project_type}\nScope: ${project.scope}\nStandard: ${project.measurement_standard}\n\n` +
-          `No source documents have been uploaded yet. You MUST still generate a representative skeleton BOQ for this project type and scope. ` +
-          `Set review_status to "needs_review" on every item to flag them for QS review. ` +
-          `Do NOT respond with only queries — produce concrete BOQ items first, then add queries only for specific ambiguities you cannot resolve from the project metadata.`
-      );
-    }
-
-    const ruleList = rules.map(
-      (r) =>
-        `${r.scope} › ${r.trade} › ${r.item_type}: unit=${r.unit}, rule="${r.description_rule}"` +
-        (r.inclusions ? ` [incl: ${r.inclusions}]` : "") +
-        (r.exclusions ? ` [excl: ${r.exclusions}]` : "")
-    );
-
-    const templateStyleNotes: string[] = templates.flatMap((t) =>
-      [
-        t.template_name ? `Template: ${t.template_name}` : null,
-        t.numbering_style ? `Numbering style: ${t.numbering_style}` : null,
-        t.sheet_name ? `Sheet: ${t.sheet_name}` : null
-      ].filter((x): x is string => x !== null)
-    );
-
-    if (templateStyleNotes.length === 0) {
-      templateStyleNotes.push(
-        `Measurement standard: ${project.measurement_standard}. Follow standard QS conventions.`
-      );
+    // Default trades list as absolute fallback if no rules seeded
+    if (trades.length === 0) {
+      trades = ["Woodwork", "Waterproofing", "Doors", "Windows", "Finishes", "Painting", "Partitions"];
     }
 
     await updateAgentJob(jobId, {
       status: "running",
-      currentStep: "Running AI generation",
-      progress: 40
+      currentStep: `Spawning ${trades.length} parallel trade agents`,
+      progress: 30
     });
 
-    const ai = getAIProvider();
-    const result = await ai.completeJson<GenerationResult>({
-      messages: [
-        { role: "system", content: boqGeneratorSystemPrompt },
-        {
-          role: "user",
-          content: buildBoqGeneratorUserPrompt({
-            measurementStandard: project.measurement_standard,
-            templateStyleNotes,
-            ruleList,
-            sourceChunks
+    // Determine baseURL dynamically from headers
+    let baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    try {
+      const host = (await headers()).get("host");
+      if (host) {
+        const protocol = host.includes("localhost") ? "http" : "https";
+        baseUrl = `${protocol}://${host}`;
+      }
+    } catch (e) {
+      console.log("Could not read host header, using default app URL:", baseUrl);
+    }
+
+    const secret = process.env.INTERNAL_WORKER_SECRET || "boq-agent-secret-123";
+
+    // Call worker route for each trade concurrently
+    const workerPromises = trades.map(async (trade) => {
+      const url = `${baseUrl}/api/generate/worker`;
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-worker-secret": secret
+          },
+          body: JSON.stringify({
+            projectId,
+            trade,
+            scope: project.scope,
+            fileIds: allFiles.map((f) => f.id),
+            jobId
           })
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Worker for trade "${trade}" failed: ${errText}`);
         }
-      ],
-      maxTokens: 24000
+
+        return (await res.json()) as {
+          success: boolean;
+          trade: string;
+          itemsCount: number;
+          queriesCount: number;
+          assumptionsCount: number;
+          estimatedCostUsd: number;
+        };
+      } catch (err) {
+        console.error(`Error in trade worker "${trade}":`, err);
+        return {
+          success: false,
+          trade,
+          itemsCount: 0,
+          queriesCount: 0,
+          assumptionsCount: 0,
+          estimatedCostUsd: 0,
+          error: err instanceof Error ? err.message : String(err)
+        };
+      }
     });
 
-    const boqItems = result.data.boq_items ?? [];
-    const queries = result.data.queries ?? [];
-    const assumptions = result.data.assumptions ?? [];
+    const results = await Promise.all(workerPromises);
 
     await updateAgentJob(jobId, {
       status: "running",
-      currentStep: `Saving ${boqItems.length} BOQ items to database`,
-      progress: 75
+      currentStep: "Running QA & deduplication checks",
+      progress: 85
     });
 
-    for (const item of boqItems) {
-      await insertBoqItem(projectId, {
-        item_no: item.item_no ?? null,
-        section: item.section,
-        trade: item.trade,
-        item_type: item.item_type,
-        description: item.description,
-        unit: item.unit === "-" ? "" : item.unit,
-        source_reference: item.source_reference ?? null,
-        confidence_score: item.confidence_score,
-        review_status: (item.review_status ?? "draft") as ReviewStatus
-      });
-    }
-    for (const q of queries) {
-      await insertBoqQuery(projectId, q);
-    }
-    for (const a of assumptions) {
-      await insertBoqAssumption(projectId, a);
+    // QA and Merging step: remove any duplicate items across trades
+    const items = (await sql`
+      select id, trade, description
+      from boq_items
+      where project_id = ${projectId}
+    `) as Array<{ id: string; trade: string; description: string }>;
+
+    const seen = new Set<string>();
+    const duplicatesToDelete: string[] = [];
+
+    for (const item of items) {
+      const key = `${item.trade.toLowerCase()}|${item.description.toLowerCase().trim()}`;
+      if (seen.has(key)) {
+        duplicatesToDelete.push(item.id);
+      } else {
+        seen.add(key);
+      }
     }
 
-    const costEstimate =
-      result.usage?.totalTokens != null ? result.usage.totalTokens * 0.000002 : undefined;
+    if (duplicatesToDelete.length > 0) {
+      await sql`
+        delete from boq_items
+        where id = any(${duplicatesToDelete})
+      `;
+      console.log(`Deduplicated ${duplicatesToDelete.length} items.`);
+    }
+
+    // Calculate overall stats
+    const successfulTrades = results.filter((r) => r.success);
+    const totalItems = results.reduce((acc, curr) => acc + curr.itemsCount, 0) - duplicatesToDelete.length;
+    const totalQueries = results.reduce((acc, curr) => acc + curr.queriesCount, 0);
+    const totalAssumptions = results.reduce((acc, curr) => acc + curr.assumptionsCount, 0);
+    const totalCost = results.reduce((acc, curr) => acc + curr.estimatedCostUsd, 0);
+
+    if (successfulTrades.length === 0 && trades.length > 0) {
+      throw new Error("All parallel trade agents failed to execute.");
+    }
 
     await updateAgentJob(jobId, {
       status: "completed",
-      currentStep: `${boqItems.length} items · ${queries.length} queries · ${assumptions.length} assumptions`,
+      currentStep: `Generated ${totalItems} items · ${totalQueries} queries · ${totalAssumptions} assumptions`,
       progress: 100,
-      message: `Completed. Model: ${result.model}`,
-      estimatedCostUsd: costEstimate
+      message: `Completed successfully. Spawned ${successfulTrades.length}/${trades.length} trade agents.`,
+      estimatedCostUsd: totalCost
     });
+
+    // Transition project status to ready_for_review
+    await sql`
+      update projects
+      set status = 'ready_for_review', updated_at = now()
+      where id = ${projectId}
+    `;
 
     revalidatePath(`/projects/${projectId}/generate`);
     revalidatePath(`/projects/${projectId}/boq-review`);
     revalidatePath(`/projects/${projectId}/queries`);
     revalidatePath(`/projects/${projectId}/assumptions`);
+    revalidatePath(`/projects/${projectId}`);
   } catch (error) {
-    console.error("BOQ generation error:", error);
-    const message = error instanceof Error ? error.message : "Unknown error during generation.";
+    console.error("BOQ generation coordinator error:", error);
+    const message = error instanceof Error ? error.message : "Unknown error during coordination.";
     await updateAgentJob(jobId, {
       status: "failed",
       currentStep: "Generation failed",
