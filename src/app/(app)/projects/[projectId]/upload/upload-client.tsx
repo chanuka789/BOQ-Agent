@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 type UploadRole = "source_document" | "boq_template";
 
 type UploadState = {
+  id: string;
   name: string;
   role: UploadRole;
   progress: number;
@@ -29,10 +30,11 @@ export function UploadClient({ projectId }: { projectId: string }) {
     const selected = Array.from(files);
 
     for (const file of selected) {
-      const index = states.length;
+      const uploadId = crypto.randomUUID();
       setStates((current) => [
         ...current,
         {
+          id: uploadId,
           name: file.name,
           role,
           progress: 0,
@@ -41,6 +43,8 @@ export function UploadClient({ projectId }: { projectId: string }) {
       ]);
 
       try {
+        await assertUploadReady(projectId);
+
         await upload(`projects/${projectId}/${role}/${file.name}`, file, {
           access: "private",
           handleUploadUrl: "/api/upload",
@@ -53,16 +57,16 @@ export function UploadClient({ projectId }: { projectId: string }) {
           }),
           onUploadProgress: ({ percentage }) => {
             setStates((current) =>
-              current.map((item, itemIndex) =>
-                itemIndex === index ? { ...item, progress: percentage } : item
+              current.map((item) =>
+                item.id === uploadId ? { ...item, progress: percentage } : item
               )
             );
           }
         });
 
         setStates((current) =>
-          current.map((item, itemIndex) =>
-            itemIndex === index
+          current.map((item) =>
+            item.id === uploadId
               ? {
                   ...item,
                   progress: 100,
@@ -74,15 +78,12 @@ export function UploadClient({ projectId }: { projectId: string }) {
         );
       } catch (error) {
         setStates((current) =>
-          current.map((item, itemIndex) =>
-            itemIndex === index
+          current.map((item) =>
+            item.id === uploadId
               ? {
                   ...item,
                   status: "error",
-                  message:
-                    error instanceof Error
-                      ? error.message
-                      : "Upload failed. Please try again."
+                  message: getUploadErrorMessage(error)
                 }
               : item
           )
@@ -155,8 +156,8 @@ export function UploadClient({ projectId }: { projectId: string }) {
 
         {states.length ? (
           <div className="space-y-3">
-            {states.map((state, index) => (
-              <div key={`${state.name}-${index}`} className="rounded-lg border border-[var(--border)] p-3">
+            {states.map((state) => (
+              <div key={state.id} className="rounded-lg border border-[var(--border)] p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate font-semibold text-[var(--foreground)]">
@@ -193,6 +194,41 @@ export function UploadClient({ projectId }: { projectId: string }) {
       </div>
     </section>
   );
+}
+
+async function assertUploadReady(projectId: string) {
+  const response = await fetch(
+    `/api/upload?projectId=${encodeURIComponent(projectId)}`,
+    {
+      cache: "no-store"
+    }
+  );
+
+  if (response.ok) {
+    return;
+  }
+
+  let message = "Upload service is not ready.";
+
+  try {
+    const data = (await response.json()) as { error?: string };
+    message = data.error ?? message;
+  } catch {
+    // Keep the generic readiness message if the response is not JSON.
+  }
+
+  throw new Error(message);
+}
+
+function getUploadErrorMessage(error: unknown) {
+  const message =
+    error instanceof Error ? error.message : "Upload failed. Please try again.";
+
+  if (message.includes("Failed to retrieve the client token")) {
+    return "Vercel Blob could not create an upload token. Check BLOB_READ_WRITE_TOKEN in the Vercel Production environment, redeploy, then retry.";
+  }
+
+  return message;
 }
 
 function RoleButton({

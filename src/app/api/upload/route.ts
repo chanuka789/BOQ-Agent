@@ -8,6 +8,11 @@ import { updateProjectStatus } from "@/lib/db/projects";
 import { createTemplateRecordForFile } from "@/lib/db/templates";
 import { getCurrentAppUser } from "@/lib/db/users";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+class UploadConfigurationError extends Error {}
+
 const clientPayloadSchema = z.object({
   projectId: z.string().uuid(),
   fileRole: z.enum(["source_document", "boq_template"]),
@@ -19,10 +24,92 @@ const tokenPayloadSchema = clientPayloadSchema.extend({
   userId: z.string().uuid()
 });
 
-export async function POST(request: Request) {
-  const body = (await request.json()) as HandleUploadBody;
+function assertUploadConfiguration() {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    throw new UploadConfigurationError(
+      "BLOB_READ_WRITE_TOKEN is missing in this Vercel deployment. Add the Blob read-write token to the Production environment and redeploy."
+    );
+  }
+}
+
+function parseJsonPayload<T>(
+  payload: string | null | undefined,
+  schema: z.ZodType<T>,
+  label: string
+) {
+  if (!payload) {
+    throw new Error(`${label} is missing.`);
+  }
 
   try {
+    return schema.parse(JSON.parse(payload));
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`${label} is not valid JSON.`);
+    }
+
+    throw error;
+  }
+}
+
+function formatUploadError(error: unknown) {
+  if (error instanceof z.ZodError) {
+    return error.issues
+      .map((issue) => {
+        const field = issue.path.join(".") || "payload";
+        return `${field}: ${issue.message}`;
+      })
+      .join("; ");
+  }
+
+  return error instanceof Error ? error.message : "Unable to create upload token.";
+}
+
+function logUploadError(context: string, error: unknown) {
+  console.error(context, {
+    message: formatUploadError(error),
+    name: error instanceof Error ? error.name : "UnknownError",
+    stack: error instanceof Error ? error.stack : undefined
+  });
+}
+
+export async function GET(request: Request) {
+  try {
+    assertUploadConfiguration();
+
+    const { searchParams } = new URL(request.url);
+    const parsed = z
+      .object({ projectId: z.string().uuid() })
+      .parse({ projectId: searchParams.get("projectId") });
+
+    const user = await getCurrentAppUser();
+
+    if (!user) {
+      return NextResponse.json(
+        { ready: false, error: "You must be signed in to upload files." },
+        { status: 401 }
+      );
+    }
+
+    await assertProjectAccess(parsed.projectId, user.id);
+
+    return NextResponse.json({ ready: true });
+  } catch (error) {
+    const message = formatUploadError(error);
+    logUploadError("BOQ upload readiness check failed", error);
+
+    return NextResponse.json(
+      { ready: false, error: message },
+      { status: error instanceof UploadConfigurationError ? 500 : 400 }
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    assertUploadConfiguration();
+
+    const body = (await request.json()) as HandleUploadBody;
     const jsonResponse = await handleUpload({
       body,
       request,
@@ -33,13 +120,18 @@ export async function POST(request: Request) {
           throw new Error("You must be signed in to upload files.");
         }
 
-        const parsed = clientPayloadSchema.parse(JSON.parse(clientPayload ?? "{}"));
+        const parsed = parseJsonPayload(
+          clientPayload,
+          clientPayloadSchema,
+          "Upload metadata"
+        );
 
         await assertProjectAccess(parsed.projectId, user.id);
 
         return {
           allowedContentTypes: [
             "application/pdf",
+            "application/octet-stream",
             "application/vnd.ms-excel",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "application/vnd.ms-excel.sheet.macroEnabled.12",
@@ -59,7 +151,11 @@ export async function POST(request: Request) {
           throw new Error("Vercel Blob upload callback is missing token payload.");
         }
 
-        const parsed = tokenPayloadSchema.parse(JSON.parse(tokenPayload));
+        const parsed = parseJsonPayload(
+          tokenPayload,
+          tokenPayloadSchema,
+          "Upload callback metadata"
+        );
         const file = await createProjectFile({
           projectId: parsed.projectId,
           uploadedBy: parsed.userId,
@@ -104,8 +200,12 @@ export async function POST(request: Request) {
 
     return NextResponse.json(jsonResponse);
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unable to create upload token.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    const message = formatUploadError(error);
+    logUploadError("BOQ upload token route failed", error);
+
+    return NextResponse.json(
+      { error: message },
+      { status: error instanceof UploadConfigurationError ? 500 : 400 }
+    );
   }
 }
