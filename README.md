@@ -37,6 +37,16 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
 - Recycle Bin: projects and generations support soft delete (recoverable) and
   permanent delete (cascades all generation/project data and removes blobs).
   App-wide previous-BOQ knowledge is preserved on deletion.
+- Measurement-standard section agents: POMI (17 section agents GP/A–R), NRM2
+  (41 work-section agents), and NRM1 (elemental cost-plan agents, kept separate
+  from detailed BOQ logic). Each agent generates only its own section/scope and
+  reads the matching app-wide scope knowledge base.
+- Automatic agent activation: the system detects which discipline scopes have
+  uploaded documents and runs only the relevant section agents in parallel
+  (bounded concurrency, configurable via `GENERATION_CONCURRENCY`). Agents whose
+  scope has no documents are skipped with a reason (e.g. "Skipped — no Structural
+  documents uploaded") and shown live on the Generate screen with per-agent and
+  overall progress.
 
 ## Configure These Services
 

@@ -88,6 +88,16 @@ export default async function GeneratePage({
             </div>
 
             {agentLogs.length > 0 ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                <AgentCountChip label="Running" tone="warning" logs={agentLogs} match="running" />
+                <AgentCountChip label="Completed" tone="success" logs={agentLogs} match="completed" />
+                <AgentCountChip label="Skipped" tone="neutral" logs={agentLogs} match="skipped" />
+                <AgentCountChip label="Failed" tone="danger" logs={agentLogs} match="failed" />
+                <AgentCountChip label="Waiting" tone="info" logs={agentLogs} match="waiting" />
+              </div>
+            ) : null}
+
+            {agentLogs.length > 0 ? (
               <div className="mt-4 space-y-2">
                 {agentLogs.map((log) => (
                   <AgentRow key={log.id} log={log} />
@@ -225,6 +235,26 @@ function OverallProgress({
         />
       </div>
     </div>
+  );
+}
+
+function AgentCountChip({
+  label,
+  tone,
+  logs,
+  match
+}: {
+  label: string;
+  tone: "neutral" | "success" | "warning" | "danger" | "info";
+  logs: BoqGenerationAgentLogRow[];
+  match: AgentLogStatus;
+}) {
+  const count = logs.filter((log) => log.status === match).length;
+  if (count === 0) return null;
+  return (
+    <Badge tone={tone}>
+      {label}: {count}
+    </Badge>
   );
 }
 

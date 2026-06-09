@@ -40,11 +40,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { projectId, trade, scope, fileIds, jobId, generationId } = await req.json();
+    const { projectId, trade, scope, fileIds, jobId, generationId, agent } = await req.json();
 
     if (!projectId || !trade) {
       return NextResponse.json({ error: "Missing projectId or trade" }, { status: 400 });
     }
+
+    // Agent metadata from the coordinator (section/NRM1/custom).
+    const sectionCode: string = agent?.code ?? "";
+    const sectionTitle: string = agent?.title ?? trade;
+    const sectionLabel: string = agent?.label ?? `${trade} Agent`;
+    const sectionUnits: string[] = agent?.units ?? [];
 
     const sql = getSql();
 
@@ -55,15 +61,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
-    // 2. Get rules for the project
+    // 2. Get rules for the project's measurement standard.
     const allRules = await getRules({ projectId });
-    // Filter rules for this specific trade (case insensitive check)
-    const rules = allRules.filter(
-      (r) =>
-        r.trade.toLowerCase() === trade.toLowerCase() ||
-        r.trade.toLowerCase().includes(trade.toLowerCase()) ||
-        trade.toLowerCase().includes(r.trade.toLowerCase())
-    );
+    // Section agents see all rules for the standard (they self-focus on their
+    // section); legacy custom trade agents keep the trade-filtered subset.
+    const isSectionAgent = sectionCode !== "";
+    const rules = isSectionAgent
+      ? allRules
+      : allRules.filter(
+          (r) =>
+            r.trade.toLowerCase() === trade.toLowerCase() ||
+            r.trade.toLowerCase().includes(trade.toLowerCase()) ||
+            trade.toLowerCase().includes(r.trade.toLowerCase())
+        );
 
     // 3. Get files for this project/trade
     const allFiles = await getProjectFiles(projectId);
@@ -137,15 +147,43 @@ export async function POST(req: NextRequest) {
       knowledgeNotes
     });
 
+    const standard = project.measurement_standard;
+    const isNrm1 = standard === "NRM1";
+    const unitsHint =
+      sectionUnits.length > 0 ? ` Typical units for this section: ${sectionUnits.join(", ")}.` : "";
+
+    // Build the section / scope focus that narrows this agent to its remit only.
+    let agentFocus: string;
+    if (isNrm1 && isSectionAgent) {
+      agentFocus = `
+You are the **${sectionLabel}** for NRM1 cost planning.
+Produce ELEMENTAL COST-PLAN descriptions for NRM1 element **${sectionCode} — ${sectionTitle}** ONLY.
+This is cost planning, NOT detailed measurement: describe the element and its scope
+at cost-plan level (elemental). Do NOT produce fine-grained measured BOQ items unless
+the documents clearly support them.${unitsHint}
+Quantities, rates and cost/m2 must remain blank. Set section = "NRM1 ${sectionCode} — ${sectionTitle}".
+If this element is not present in the project, return an empty boq_items list.`;
+    } else if (isSectionAgent) {
+      agentFocus = `
+You are the **${sectionLabel}**.
+Generate BOQ items for **${standard} ${sectionCode} — ${sectionTitle}** ONLY (discipline scope: ${agent?.scope ?? scope}).
+Do NOT generate items belonging to any other ${standard} section. If the source documents
+contain no ${sectionTitle} work, return an empty boq_items list (you may still raise queries
+or assumptions).${unitsHint}
+Set section = "${standard} ${sectionCode} — ${sectionTitle}" on every item.`;
+    } else {
+      agentFocus = `
+You are a specialized Trade Agent for: **${trade}** under scope **${scope ?? "Architecture + Internal Design"}**.
+Generate BOQ items ONLY for the trade **${trade}**. If the documents contain no items for
+**${trade}**, return an empty boq_items list (you may still raise queries or assumptions).`;
+    }
+
     const tradeSystemPrompt = `
 ${systemPrompt}
+${agentFocus}
 
-You are a specialized Trade Agent for: **${trade}** under scope **${scope ?? "Architecture + Internal Design"}**.
-Your task is to analyze the source documents and generate BOQ items ONLY for the trade: **${trade}**.
-Do NOT generate items for any other trades. If the source documents do not contain items for **${trade}**, return an empty list of BOQ items, but you can raise queries or make assumptions if relevant.
-
-Follow the **${project.measurement_standard}** measurement method and these rules for this trade:
-${ruleList.length > 0 ? ruleList.map((r) => `- ${r}`).join("\n") : "- No specific trade rules found. Follow " + project.measurement_standard + " requirements and the learned house style for " + trade + "."}
+Follow the **${standard}** measurement method and these rules:
+${ruleList.length > 0 ? ruleList.map((r) => `- ${r}`).join("\n") : "- No seeded rules for this section. Follow " + standard + " requirements and the learned house style."}
 `;
 
     const userPromptContent: any[] = [
@@ -153,8 +191,9 @@ ${ruleList.length > 0 ? ruleList.map((r) => `- ${r}`).join("\n") : "- No specifi
         type: "text",
         text: `
 Measurement standard: ${project.measurement_standard}
-Target Trade: ${trade}
-Target Scope: ${scope ?? "Architecture + Internal Design"}
+Target agent: ${sectionLabel}
+${isSectionAgent ? `Target section: ${project.measurement_standard} ${sectionCode} — ${sectionTitle}` : `Target trade: ${trade}`}
+Discipline scope: ${agent?.scope ?? scope ?? "Architecture + Internal Design"}
 
 Template / format instructions:
 ${templateStyleNotes.map((note) => `- ${note}`).join("\n")}
@@ -162,7 +201,7 @@ ${templateStyleNotes.map((note) => `- ${note}`).join("\n")}
 Source document content:
 ${sourceChunks.map((chunk, i) => `SOURCE ${i + 1}:\n${chunk}`).join("\n\n")}
 
-Generate the BOQ for **${trade}** only.
+Generate the BOQ for this agent's remit only.
 Return strict JSON only.
 `
       }
@@ -190,20 +229,27 @@ Return strict JSON only.
     const queries = result.data.queries ?? [];
     const assumptions = result.data.assumptions ?? [];
 
-    // Filter boqItems to make sure they are only for this trade (safety filter)
-    const filteredItems = boqItems.filter(
-      (item) =>
-        item.trade &&
-        (item.trade.toLowerCase() === trade.toLowerCase() ||
-          item.trade.toLowerCase().includes(trade.toLowerCase()) ||
-          trade.toLowerCase().includes(item.trade.toLowerCase()))
-    );
+    // Section agents are already narrowly focused, so trust their output and
+    // re-tag the section. Legacy custom trade agents keep the trade safety filter.
+    const filteredItems = isSectionAgent
+      ? boqItems
+      : boqItems.filter(
+          (item) =>
+            item.trade &&
+            (item.trade.toLowerCase() === trade.toLowerCase() ||
+              item.trade.toLowerCase().includes(trade.toLowerCase()) ||
+              trade.toLowerCase().includes(item.trade.toLowerCase()))
+        );
+
+    const sectionHeading = isSectionAgent
+      ? `${project.measurement_standard} ${sectionCode} — ${sectionTitle}`
+      : null;
 
     // 8. Bulk insert into database
     const cleanedItems = filteredItems.map((item) => ({
       item_no: item.item_no ?? null,
-      section: item.section || "Architecture + Internal Design",
-      trade: trade, // enforce exact trade string
+      section: sectionHeading ?? (item.section || "Architecture + Internal Design"),
+      trade: sectionTitle, // group under the section/trade title
       item_type: item.item_type || "measured",
       description: item.description,
       unit: item.unit === "-" ? "" : item.unit,

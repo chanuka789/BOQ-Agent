@@ -2,14 +2,23 @@ import "server-only";
 
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
+import { selectSectionAgents, type FileSignal, type SectionAgent } from "@/lib/agents/sections";
 import { updateAgentJob } from "@/lib/db/boq";
 import { getSql } from "@/lib/db/client";
 import { getProjectFiles } from "@/lib/db/files";
-import {
-  updateGenerationStatus,
-  upsertAgentLog
-} from "@/lib/db/generations";
-import type { ProjectRow } from "@/lib/db/types";
+import { updateGenerationStatus, upsertAgentLog } from "@/lib/db/generations";
+import { extractFileText } from "@/lib/documents/extractor";
+import type { ProjectFileRow, ProjectRow } from "@/lib/db/types";
+
+type WorkerResult = {
+  success: boolean;
+  trade: string;
+  itemsCount: number;
+  queriesCount: number;
+  assumptionsCount: number;
+  estimatedCostUsd: number;
+  error?: string;
+};
 
 async function getProjectById(projectId: string): Promise<ProjectRow | null> {
   const sql = getSql();
@@ -17,6 +26,58 @@ async function getProjectById(projectId: string): Promise<ProjectRow | null> {
     select * from projects where id = ${projectId} limit 1
   `) as ProjectRow[];
   return rows[0] ?? null;
+}
+
+/** Run async tasks with a bounded concurrency so we don't overwhelm the worker
+ *  route or hit model rate limits when many section agents run in parallel. */
+async function runPool<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await fn(items[index]);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
+async function buildFileSignals(files: ProjectFileRow[]): Promise<FileSignal[]> {
+  return Promise.all(
+    files.map(async (file) => {
+      let textSample = "";
+      try {
+        const text = await extractFileText(file.storage_url, file.mime_type, file.file_name);
+        textSample = text.slice(0, 8000);
+      } catch {
+        /* detection falls back to file name / classification */
+      }
+      return {
+        fileName: file.file_name,
+        documentType: file.document_type,
+        scope: file.scope,
+        textSample
+      } satisfies FileSignal;
+    })
+  );
+}
+
+/** Build the agent roster for Custom projects from the seeded trades. */
+function buildCustomAgents(trades: string[], projectScope: string): SectionAgent[] {
+  return trades.map((trade) => ({
+    agentId: `custom-${trade}`,
+    standard: "POMI", // placeholder; Custom uses rules + learned style, not a standard
+    code: "",
+    title: trade,
+    label: `${trade} Agent`,
+    scope: projectScope,
+    units: []
+  }));
 }
 
 export async function runBoqGeneration(
@@ -38,73 +99,91 @@ export async function runBoqGeneration(
       getProjectById(projectId),
       getProjectFiles(projectId)
     ]);
-
     if (!project) throw new Error("Project not found.");
 
-    // Only true source documents (drawings, specs, schedules) feed generation.
-    // Previous BOQs inform the house style via learned knowledge, and templates
-    // drive the export — neither should be copied as raw source content.
-    const sourceFiles = allFiles.filter(
-      (file) => file.file_type === "source_document"
-    );
+    // Only true source documents feed generation and scope detection.
+    const sourceFiles = allFiles.filter((file) => file.file_type === "source_document");
 
     await updateAgentJob(jobId, {
       status: "running",
-      currentStep: "Identifying target trades",
+      currentStep: "Detecting available scopes from uploaded documents",
       progress: 15
     });
 
     const sql = getSql();
-    // Dynamically retrieve trades associated with this project standard and scope from rules
-    const uniqueTrades = (await sql`
-      select distinct trade
-      from boq_rules
-      where measurement_standard = ${project.measurement_standard}
-        and scope = ${project.scope}
-    `) as Array<{ trade: string }>;
+    const standard = project.measurement_standard;
 
-    let trades = uniqueTrades.map((r) => r.trade);
+    // ── Build the agent roster ────────────────────────────────────────────────
+    let runAgents: SectionAgent[] = [];
+    let skippedAgents: Array<{ agent: SectionAgent; reason: string }> = [];
 
-    // Fallback if no scope-specific rules found
-    if (trades.length === 0) {
-      const fallbackTrades = (await sql`
-        select distinct trade
-        from boq_rules
-        where measurement_standard = ${project.measurement_standard}
+    if (standard === "POMI" || standard === "NRM2" || standard === "NRM1") {
+      const signals = await buildFileSignals(sourceFiles);
+      const selection = selectSectionAgents({
+        standard,
+        projectScope: project.scope,
+        signals
+      });
+      runAgents = selection.run;
+      skippedAgents = selection.skipped;
+    } else {
+      // Custom / client-specific: derive agents from the seeded trades.
+      const tradeRows = (await sql`
+        select distinct trade from boq_rules
+        where measurement_standard = ${standard}
       `) as Array<{ trade: string }>;
-      trades = fallbackTrades.map((r) => r.trade);
+      let trades = tradeRows.map((r) => r.trade);
+      if (trades.length === 0) {
+        trades = ["Woodwork", "Waterproofing", "Doors", "Windows", "Finishes", "Painting", "Partitions"];
+      }
+      runAgents = buildCustomAgents(trades, project.scope);
     }
 
-    // Default trades list as absolute fallback if no rules seeded
-    if (trades.length === 0) {
-      trades = ["Woodwork", "Waterproofing", "Doors", "Windows", "Finishes", "Painting", "Partitions"];
+    if (runAgents.length === 0) {
+      throw new Error("No applicable agents for this project standard and scope.");
     }
 
-    await updateAgentJob(jobId, {
-      status: "running",
-      currentStep: `Spawning ${trades.length} parallel trade agents`,
-      progress: 30
-    });
-
-    // Seed an agent log row per trade so the UI can show live per-agent status.
+    // Record skipped agents up-front so the UI shows them immediately.
     if (generationId) {
       await Promise.all(
-        trades.map((trade) =>
+        skippedAgents.map(({ agent, reason }) =>
           upsertAgentLog({
             generationId,
             projectId,
-            agentId: `trade-${trade}`,
-            agentLabel: `${trade} Agent`,
-            scope: project.scope,
+            agentId: agent.agentId,
+            agentLabel: agent.label,
+            scope: agent.scope,
+            sectionCode: agent.code || null,
+            status: "skipped",
+            progress: 100,
+            statusText: reason
+          })
+        )
+      );
+      await Promise.all(
+        runAgents.map((agent) =>
+          upsertAgentLog({
+            generationId,
+            projectId,
+            agentId: agent.agentId,
+            agentLabel: agent.label,
+            scope: agent.scope,
+            sectionCode: agent.code || null,
             status: "running",
             progress: 10,
-            statusText: `Reading source documents for ${trade}.`
+            statusText: `Reading documents for ${agent.title}.`
           })
         )
       );
     }
 
-    // Determine baseURL dynamically from headers
+    await updateAgentJob(jobId, {
+      status: "running",
+      currentStep: `Running ${runAgents.length} agents · ${skippedAgents.length} skipped`,
+      progress: 30
+    });
+
+    // ── Worker base URL & secret ──────────────────────────────────────────────
     let baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     try {
       const host = (await headers()).get("host");
@@ -112,94 +191,94 @@ export async function runBoqGeneration(
         const protocol = host.includes("localhost") ? "http" : "https";
         baseUrl = `${protocol}://${host}`;
       }
-    } catch (e) {
-      console.log("Could not read host header, using default app URL:", baseUrl);
+    } catch {
+      /* use default */
     }
-
     const secret = process.env.INTERNAL_WORKER_SECRET || "boq-agent-secret-123";
+    const concurrency = Number(process.env.GENERATION_CONCURRENCY || 5);
+    const sourceFileIds = sourceFiles.map((f) => f.id);
 
-    // Call worker route for each trade concurrently
-    const workerPromises = trades.map(async (trade) => {
-      const url = `${baseUrl}/api/generate/worker`;
-      try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-worker-secret": secret
-          },
-          body: JSON.stringify({
-            projectId,
-            trade,
-            scope: project.scope,
-            fileIds: sourceFiles.map((f) => f.id),
-            jobId,
-            generationId
-          })
-        });
+    let completedCount = 0;
 
-        if (!res.ok) {
-          const errText = await res.text();
-          throw new Error(`Worker for trade "${trade}" failed: ${errText}`);
-        }
-
-        const data = (await res.json()) as {
-          success: boolean;
-          trade: string;
-          itemsCount: number;
-          queriesCount: number;
-          assumptionsCount: number;
-          estimatedCostUsd: number;
-        };
-
-        if (generationId) {
-          await upsertAgentLog({
-            generationId,
-            projectId,
-            agentId: `trade-${trade}`,
-            agentLabel: `${trade} Agent`,
-            scope: project.scope,
-            status: data.itemsCount > 0 ? "completed" : "skipped",
-            progress: 100,
-            statusText:
-              data.itemsCount > 0
-                ? `Generated ${data.itemsCount} ${trade} item(s).`
-                : `No ${trade} items found in the uploaded documents.`,
-            itemsCount: data.itemsCount,
-            queriesCount: data.queriesCount,
-            assumptionsCount: data.assumptionsCount
+    const results = await runPool<SectionAgent, WorkerResult>(
+      runAgents,
+      concurrency,
+      async (agent) => {
+        try {
+          const res = await fetch(`${baseUrl}/api/generate/worker`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-worker-secret": secret },
+            body: JSON.stringify({
+              projectId,
+              jobId,
+              generationId,
+              fileIds: sourceFileIds,
+              trade: agent.title,
+              scope: agent.scope,
+              agent
+            })
           });
-        }
+          if (!res.ok) {
+            throw new Error(`${agent.label} failed: ${await res.text()}`);
+          }
+          const data = (await res.json()) as WorkerResult;
 
-        return data;
-      } catch (err) {
-        console.error(`Error in trade worker "${trade}":`, err);
-        if (generationId) {
-          await upsertAgentLog({
-            generationId,
-            projectId,
-            agentId: `trade-${trade}`,
-            agentLabel: `${trade} Agent`,
-            scope: project.scope,
-            status: "failed",
-            progress: 100,
-            statusText: `Failed to generate ${trade} items.`,
-            errorMessage: err instanceof Error ? err.message : String(err)
+          if (generationId) {
+            await upsertAgentLog({
+              generationId,
+              projectId,
+              agentId: agent.agentId,
+              agentLabel: agent.label,
+              scope: agent.scope,
+              sectionCode: agent.code || null,
+              status: data.itemsCount > 0 ? "completed" : "skipped",
+              progress: 100,
+              statusText:
+                data.itemsCount > 0
+                  ? `Generated ${data.itemsCount} ${agent.title} item(s).`
+                  : `No ${agent.title} items found in the uploaded documents.`,
+              itemsCount: data.itemsCount,
+              queriesCount: data.queriesCount,
+              assumptionsCount: data.assumptionsCount
+            });
+          }
+          return data;
+        } catch (err) {
+          console.error(`Error in agent "${agent.label}":`, err);
+          if (generationId) {
+            await upsertAgentLog({
+              generationId,
+              projectId,
+              agentId: agent.agentId,
+              agentLabel: agent.label,
+              scope: agent.scope,
+              sectionCode: agent.code || null,
+              status: "failed",
+              progress: 100,
+              statusText: `Failed to generate ${agent.title} items.`,
+              errorMessage: err instanceof Error ? err.message : String(err)
+            }).catch(() => {});
+          }
+          return {
+            success: false,
+            trade: agent.title,
+            itemsCount: 0,
+            queriesCount: 0,
+            assumptionsCount: 0,
+            estimatedCostUsd: 0,
+            error: err instanceof Error ? err.message : String(err)
+          };
+        } finally {
+          completedCount += 1;
+          const progress = 30 + Math.round((completedCount / runAgents.length) * 50);
+          await updateAgentJob(jobId, {
+            status: "running",
+            currentStep: `Completed ${completedCount}/${runAgents.length} agents`,
+            progress
           }).catch(() => {});
         }
-        return {
-          success: false,
-          trade,
-          itemsCount: 0,
-          queriesCount: 0,
-          assumptionsCount: 0,
-          estimatedCostUsd: 0,
-          error: err instanceof Error ? err.message : String(err)
-        };
       }
-    });
-
-    const results = await Promise.all(workerPromises);
+    );
 
     await updateAgentJob(jobId, {
       status: "running",
@@ -217,56 +296,47 @@ export async function runBoqGeneration(
 
     const seen = new Set<string>();
     const duplicatesToDelete: string[] = [];
-
     for (const item of items) {
       const key = `${item.trade.toLowerCase()}|${item.description.toLowerCase().trim()}`;
-      if (seen.has(key)) {
-        duplicatesToDelete.push(item.id);
-      } else {
-        seen.add(key);
-      }
+      if (seen.has(key)) duplicatesToDelete.push(item.id);
+      else seen.add(key);
     }
-
     if (duplicatesToDelete.length > 0) {
-      await sql`
-        delete from boq_items
-        where id = any(${duplicatesToDelete})
-      `;
-      console.log(`Deduplicated ${duplicatesToDelete.length} items.`);
+      await sql`delete from boq_items where id = any(${duplicatesToDelete})`;
     }
 
-    // Calculate overall stats
-    const successfulTrades = results.filter((r) => r.success);
-    const totalItems = results.reduce((acc, curr) => acc + curr.itemsCount, 0) - duplicatesToDelete.length;
-    const totalQueries = results.reduce((acc, curr) => acc + curr.queriesCount, 0);
-    const totalAssumptions = results.reduce((acc, curr) => acc + curr.assumptionsCount, 0);
-    const totalCost = results.reduce((acc, curr) => acc + curr.estimatedCostUsd, 0);
+    const successful = results.filter((r) => r.success);
+    const totalItems = Math.max(
+      results.reduce((acc, r) => acc + r.itemsCount, 0) - duplicatesToDelete.length,
+      0
+    );
+    const totalQueries = results.reduce((acc, r) => acc + r.queriesCount, 0);
+    const totalAssumptions = results.reduce((acc, r) => acc + r.assumptionsCount, 0);
+    const totalCost = results.reduce((acc, r) => acc + r.estimatedCostUsd, 0);
 
-    if (successfulTrades.length === 0 && trades.length > 0) {
-      throw new Error("All parallel trade agents failed to execute.");
+    if (successful.length === 0 && runAgents.length > 0) {
+      throw new Error("All section agents failed to execute.");
     }
 
     await updateAgentJob(jobId, {
       status: "completed",
       currentStep: `Generated ${totalItems} items · ${totalQueries} queries · ${totalAssumptions} assumptions`,
       progress: 100,
-      message: `Completed successfully. Spawned ${successfulTrades.length}/${trades.length} trade agents.`,
+      message: `Completed. ${successful.length}/${runAgents.length} agents produced items · ${skippedAgents.length} scope-skipped.`,
       estimatedCostUsd: totalCost
     });
 
     if (generationId) {
       await updateGenerationStatus(generationId, "completed", {
-        itemCount: Math.max(totalItems, 0),
+        itemCount: totalItems,
         queryCount: totalQueries,
         assumptionCount: totalAssumptions,
         estimatedCostUsd: totalCost
       });
     }
 
-    // Transition project status to ready_for_review
     await sql`
-      update projects
-      set status = 'ready_for_review', updated_at = now()
+      update projects set status = 'ready_for_review', updated_at = now()
       where id = ${projectId}
     `;
 
