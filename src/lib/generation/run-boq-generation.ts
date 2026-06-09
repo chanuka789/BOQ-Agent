@@ -178,7 +178,7 @@ export async function runBoqGeneration(projectId: string, jobId: string): Promis
           })
         }
       ],
-      maxTokens: 8000
+      maxTokens: 24000
     });
 
     const boqItems = result.data.boq_items ?? [];
