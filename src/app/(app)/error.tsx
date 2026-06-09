@@ -27,6 +27,10 @@ export default function AppError({
             Digest: {error.digest}
           </p>
         ) : null}
+        <div className="mt-4 p-4 border border-[var(--danger)] bg-[var(--danger-soft)] text-[var(--danger)] text-left rounded-lg text-xs font-mono overflow-auto max-h-60">
+          <p className="font-extrabold">{error.name}: {error.message}</p>
+          {error.stack ? <pre className="mt-2 whitespace-pre-wrap">{error.stack}</pre> : null}
+        </div>
         <button className="btn btn-primary mt-5" type="button" onClick={reset}>
           <RotateCcw size={16} aria-hidden="true" />
           Reload page
