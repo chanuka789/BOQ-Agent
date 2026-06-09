@@ -6,6 +6,7 @@ import { ReviewBanner } from "@/components/review-banner";
 import { SetupRequired } from "@/components/setup-required";
 import { Badge } from "@/components/status-badge";
 import { getBoqAssumptions, getBoqItems, getBoqQueries } from "@/lib/db/boq";
+import { getAnalyzedKnowledge } from "@/lib/db/knowledge";
 import { getProjectForCurrentUser } from "@/lib/db/projects";
 import { getProjectTemplates } from "@/lib/db/templates";
 
@@ -17,13 +18,17 @@ export default async function ExportPage({
   const { projectId } = await params;
 
   try {
-    const [{ project }, templates, items, queries, assumptions] = await Promise.all([
-      getProjectForCurrentUser(projectId),
-      getProjectTemplates(projectId),
-      getBoqItems(projectId),
-      getBoqQueries(projectId),
-      getBoqAssumptions(projectId)
-    ]);
+    const [{ project }, templates, items, queries, assumptions, knowledge] =
+      await Promise.all([
+        getProjectForCurrentUser(projectId),
+        getProjectTemplates(projectId),
+        getBoqItems(projectId),
+        getBoqQueries(projectId),
+        getBoqAssumptions(projectId),
+        getAnalyzedKnowledge(projectId)
+      ]);
+
+    const canExport = items.length > 0;
 
     return (
       <>
@@ -31,21 +36,32 @@ export default async function ExportPage({
           title="Export"
           description={`Prepare an editable Excel BOQ draft for ${project.name}.`}
           action={
-            <button className="btn btn-primary" type="button" disabled>
-              <Download size={16} aria-hidden="true" />
-              Download .xlsx
-            </button>
+            canExport ? (
+              <a
+                className="btn btn-primary"
+                href={`/api/export/${projectId}`}
+                download
+              >
+                <Download size={16} aria-hidden="true" />
+                Download .xlsx
+              </a>
+            ) : (
+              <button className="btn btn-primary" type="button" disabled>
+                <Download size={16} aria-hidden="true" />
+                Download .xlsx
+              </button>
+            )
           }
         />
         <ReviewBanner />
 
-        {templates.length === 0 ? (
+        {items.length === 0 ? (
           <EmptyState
             icon={FileSpreadsheet}
-            title="Upload a BOQ template first"
-            description="The export will preserve the uploaded workbook structure and fill only description and unit columns."
-            actionHref={`/projects/${projectId}/upload`}
-            actionLabel="Upload template"
+            title="Generate BOQ items first"
+            description="The Excel export builds from the generated BOQ. Generate a BOQ draft, then return here to download a formatted .xlsx with blank quantity, rate and amount columns."
+            actionHref={`/projects/${projectId}/generate`}
+            actionLabel="Generate BOQ"
           />
         ) : (
           <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
@@ -54,10 +70,17 @@ export default async function ExportPage({
                 Export preview
               </h2>
               <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-                ExcelJS export is scaffolded for the next phase. It will copy the
-                uploaded workbook, fill descriptions and units into detected
-                work-sheet columns, and add source, assumption, query, and
-                AI-review notice sheets.
+                The download builds a formatted .xlsx workbook: a <strong>BOQ</strong>{" "}
+                sheet grouped by trade section with headings, descriptions and
+                units; blank quantity, rate and amount columns; plus{" "}
+                <strong>Summary</strong>, <strong>Assumptions</strong>,{" "}
+                <strong>Queries (RFI)</strong> and an <strong>AI Review Notice</strong>{" "}
+                sheet.
+                {knowledge.length > 0
+                  ? " The structure and summary layout follow the style learned from your previous BOQs."
+                  : templates.length > 0
+                    ? " Upload and analyse a previous BOQ to make the export match your house style even more closely."
+                    : ""}
               </p>
 
               <div className="mt-5 table-shell overflow-x-auto">
@@ -98,8 +121,9 @@ export default async function ExportPage({
             </section>
 
             <aside className="space-y-4">
-              <Metric label="Templates" value={templates.length} tone="info" />
               <Metric label="BOQ items" value={items.length} />
+              <Metric label="Learned BOQs" value={knowledge.length} tone="info" />
+              <Metric label="Templates" value={templates.length} tone="info" />
               <Metric label="Queries" value={queries.length} tone="warning" />
               <Metric label="Assumptions" value={assumptions.length} />
             </aside>

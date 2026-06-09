@@ -89,6 +89,37 @@ export type BoqTemplateRow = {
   updated_at: string;
 };
 
+export type BoqKnowledgeRow = {
+  id: string;
+  project_id: string;
+  file_id: string | null;
+  source_file_name: string | null;
+  measurement_standard: string | null;
+  description_patterns: string | null;
+  item_wording_patterns: string | null;
+  trade_section_structure: string | null;
+  heading_structure: string | null;
+  numbering_style: string | null;
+  unit_usage_patterns: string | null;
+  measurement_standard_usage: string | null;
+  inclusions: string | null;
+  exclusions: string | null;
+  formatting_style: string | null;
+  summary_structure: string | null;
+  sample_items: Array<{
+    item_no?: string;
+    description?: string;
+    unit?: string;
+    section?: string;
+  }>;
+  detected_units: string[];
+  raw_analysis: Record<string, unknown>;
+  status: "pending" | "analyzing" | "analyzed" | "failed";
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type BoqRuleRow = {
   id: string;
   measurement_standard: MeasurementStandard;

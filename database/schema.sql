@@ -135,6 +135,32 @@ create table if not exists document_chunks (
   created_at timestamptz not null default now()
 );
 
+create table if not exists boq_knowledge (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references projects(id) on delete cascade,
+  file_id uuid references project_files(id) on delete set null,
+  source_file_name text,
+  measurement_standard text,
+  description_patterns text,
+  item_wording_patterns text,
+  trade_section_structure text,
+  heading_structure text,
+  numbering_style text,
+  unit_usage_patterns text,
+  measurement_standard_usage text,
+  inclusions text,
+  exclusions text,
+  formatting_style text,
+  summary_structure text,
+  sample_items jsonb not null default '[]'::jsonb,
+  detected_units jsonb not null default '[]'::jsonb,
+  raw_analysis jsonb not null default '{}'::jsonb,
+  status text not null default 'analyzed' check (status in ('pending', 'analyzing', 'analyzed', 'failed')),
+  error_message text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists boq_items (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references projects(id) on delete cascade,
@@ -261,6 +287,8 @@ create index if not exists idx_document_chunks_project_id on document_chunks(pro
 create index if not exists idx_document_chunks_embedding on document_chunks using hnsw (embedding vector_cosine_ops);
 create index if not exists idx_boq_template_profiles_active on boq_template_profiles(is_active);
 create index if not exists idx_boq_rules_lookup on boq_rules(measurement_standard, scope, trade, item_type);
+create index if not exists idx_boq_knowledge_project_id on boq_knowledge(project_id);
+create index if not exists idx_boq_knowledge_file_id on boq_knowledge(file_id);
 create index if not exists idx_boq_items_project_id on boq_items(project_id);
 create index if not exists idx_boq_items_review_status on boq_items(project_id, review_status);
 create index if not exists idx_boq_queries_project_id on boq_queries(project_id);
@@ -297,6 +325,11 @@ for each row execute function set_updated_at();
 drop trigger if exists boq_templates_set_updated_at on boq_templates;
 create trigger boq_templates_set_updated_at
 before update on boq_templates
+for each row execute function set_updated_at();
+
+drop trigger if exists boq_knowledge_set_updated_at on boq_knowledge;
+create trigger boq_knowledge_set_updated_at
+before update on boq_knowledge
 for each row execute function set_updated_at();
 
 drop trigger if exists boq_items_set_updated_at on boq_items;
