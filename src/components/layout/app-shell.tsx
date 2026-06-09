@@ -15,7 +15,6 @@ import {
   FolderKanban,
   Gauge,
   LayoutDashboard,
-  Library,
   Moon,
   Plus,
   Settings,
@@ -34,7 +33,6 @@ type AppShellProps = {
 
 const projectNav = [
   { label: "Upload documents", icon: UploadCloud, segment: "upload" },
-  { label: "Previous BOQs", icon: Library, segment: "previous-boqs" },
   { label: "Document review", icon: FileSearch, segment: "document-review" },
   { label: "Generate BOQ", icon: Sparkles, segment: "generate" },
   { label: "BOQ review", icon: Table2, segment: "boq-review" },

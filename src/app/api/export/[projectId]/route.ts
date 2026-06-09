@@ -8,7 +8,7 @@ import {
   updateGenerationStatus,
   upsertAgentLog
 } from "@/lib/db/generations";
-import { getProjectKnowledge } from "@/lib/db/knowledge";
+import { getAppKnowledge } from "@/lib/db/app-knowledge";
 import { assertProjectAccess } from "@/lib/db/projects";
 import { requireCurrentAppUser } from "@/lib/db/users";
 import { buildBoqWorkbook } from "@/lib/export/build-workbook";
@@ -56,7 +56,7 @@ export async function GET(
       getBoqItems(projectId, generationId),
       getBoqAssumptions(projectId, generationId),
       getBoqQueries(projectId, generationId),
-      getProjectKnowledge(projectId)
+      getAppKnowledge({ includeDisabled: false })
     ]);
 
     const buffer = await buildBoqWorkbook({

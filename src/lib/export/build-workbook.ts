@@ -4,10 +4,17 @@ import ExcelJS from "exceljs";
 import type {
   BoqAssumptionRow,
   BoqItemRow,
-  BoqKnowledgeRow,
   BoqQueryRow,
   ProjectRow
 } from "@/lib/db/types";
+
+// Minimal shape used for the learned summary note / sources — satisfied by the
+// app-wide knowledge base rows (active records).
+export type ExportKnowledge = {
+  status: string;
+  summary_structure: string | null;
+  source_file_name: string | null;
+};
 
 const REVIEW_NOTICE =
   "AI-generated draft — review required before pricing or tender. Quantities, rates and amounts are intentionally left blank for the Quantity Surveyor.";
@@ -28,7 +35,7 @@ type ExportData = {
   items: BoqItemRow[];
   assumptions: BoqAssumptionRow[];
   queries: BoqQueryRow[];
-  knowledge: BoqKnowledgeRow[];
+  knowledge: ExportKnowledge[];
   generationLabel?: string;
 };
 
@@ -174,7 +181,7 @@ function buildSummarySheet(
   wb: ExcelJS.Workbook,
   project: ProjectRow,
   items: BoqItemRow[],
-  knowledge: BoqKnowledgeRow[]
+  knowledge: ExportKnowledge[]
 ) {
   const ws = wb.addWorksheet("Summary");
   ws.columns = [
@@ -187,7 +194,7 @@ function buildSummarySheet(
   ws.getCell("A1").font = { bold: true, size: 13, color: { argb: PRIMARY } };
 
   const learnedSummary = knowledge.find(
-    (row) => row.status === "analyzed" && row.summary_structure
+    (row) => row.status !== "disabled" && row.summary_structure
   )?.summary_structure;
   if (learnedSummary) {
     ws.mergeCells("A2:B2");
@@ -288,7 +295,7 @@ function buildQueriesSheet(wb: ExcelJS.Workbook, queries: BoqQueryRow[]) {
 function buildNoticeSheet(
   wb: ExcelJS.Workbook,
   project: ProjectRow,
-  knowledge: BoqKnowledgeRow[]
+  knowledge: ExportKnowledge[]
 ) {
   const ws = wb.addWorksheet("AI Review Notice");
   ws.columns = [{ width: 100 }];
@@ -307,7 +314,7 @@ function buildNoticeSheet(
     ""
   ];
 
-  const analyzed = knowledge.filter((row) => row.status === "analyzed");
+  const analyzed = knowledge.filter((row) => row.status !== "disabled");
   if (analyzed.length > 0) {
     lines.push(
       `Style learned from ${analyzed.length} previous BOQ${analyzed.length > 1 ? "s" : ""}:`

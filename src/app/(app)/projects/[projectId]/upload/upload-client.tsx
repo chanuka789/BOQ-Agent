@@ -2,11 +2,11 @@
 
 import { useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
-import { FileSpreadsheet, FileText, Library, UploadCloud } from "lucide-react";
+import { FileSpreadsheet, FileText, UploadCloud } from "lucide-react";
 import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type UploadRole = "source_document" | "boq_template" | "previous_boq";
+type UploadRole = "source_document" | "boq_template";
 
 type UploadState = {
   id: string;
@@ -70,10 +70,7 @@ export function UploadClient({ projectId }: { projectId: string }) {
                   ...item,
                   progress: 100,
                   status: "complete",
-                  message:
-                    item.role === "previous_boq"
-                      ? "Upload complete. The agent is analysing this previous BOQ — learned style appears on the Previous BOQs page shortly."
-                      : "Upload complete. Metadata will appear after Vercel confirms the callback."
+                  message: "Upload complete. Metadata will appear after Vercel confirms the callback."
                 }
               : item
           )
@@ -107,7 +104,7 @@ export function UploadClient({ projectId }: { projectId: string }) {
       </div>
 
       <div className="space-y-5 p-5">
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <RoleButton
             active={role === "source_document"}
             icon={FileText}
@@ -121,13 +118,6 @@ export function UploadClient({ projectId }: { projectId: string }) {
             label="BOQ template"
             description="Excel bill format used for descriptions and export"
             onClick={() => setRole("boq_template")}
-          />
-          <RoleButton
-            active={role === "previous_boq"}
-            icon={Library}
-            label="Previous BOQ"
-            description="Past bills the agent learns your style and structure from"
-            onClick={() => setRole("previous_boq")}
           />
         </div>
 

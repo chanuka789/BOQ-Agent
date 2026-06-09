@@ -340,7 +340,7 @@ export async function insertBoqItemsBulk(
     values ${placeholders.join(", ")}
   `;
 
-  await sql(queryStr, params);
+  await sql.query(queryStr, params);
 }
 
 export async function insertBoqQueriesBulk(
@@ -376,7 +376,7 @@ export async function insertBoqQueriesBulk(
     values ${placeholders.join(", ")}
   `;
 
-  await sql(queryStr, params);
+  await sql.query(queryStr, params);
 }
 
 export async function insertBoqAssumptionsBulk(
@@ -410,6 +410,6 @@ export async function insertBoqAssumptionsBulk(
     values ${placeholders.join(", ")}
   `;
 
-  await sql(queryStr, params);
+  await sql.query(queryStr, params);
 }
 

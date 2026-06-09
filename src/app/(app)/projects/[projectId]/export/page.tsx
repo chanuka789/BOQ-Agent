@@ -8,7 +8,7 @@ import { SetupRequired } from "@/components/setup-required";
 import { Badge } from "@/components/status-badge";
 import { getBoqAssumptions, getBoqItems, getBoqQueries } from "@/lib/db/boq";
 import { getGenerations, getGenerationExports, resolveGeneration } from "@/lib/db/generations";
-import { getAnalyzedKnowledge } from "@/lib/db/knowledge";
+import { getAppKnowledge } from "@/lib/db/app-knowledge";
 import { getProjectForCurrentUser } from "@/lib/db/projects";
 import { getProjectTemplates } from "@/lib/db/templates";
 import { formatDate } from "@/lib/format";
@@ -33,7 +33,7 @@ export default async function ExportPage({
         getBoqItems(projectId, generationId),
         getBoqQueries(projectId, generationId),
         getBoqAssumptions(projectId, generationId),
-        getAnalyzedKnowledge(projectId),
+        getAppKnowledge({ includeDisabled: false }),
         generationId ? getGenerationExports(generationId) : Promise.resolve([])
       ]);
 
@@ -153,7 +153,7 @@ export default async function ExportPage({
 
             <aside className="space-y-4">
               <Metric label="BOQ items" value={items.length} />
-              <Metric label="Learned BOQs" value={knowledge.length} tone="info" />
+              <Metric label="Learned patterns" value={knowledge.length} tone="info" />
               <Metric label="Templates" value={templates.length} tone="info" />
               <Metric label="Queries" value={queries.length} tone="warning" />
               <Metric label="Assumptions" value={assumptions.length} />
