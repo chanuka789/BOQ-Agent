@@ -1,0 +1,35 @@
+{
+  "name": "ai-boq-agent",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clerk/nextjs": "latest",
+    "@neondatabase/serverless": "^1.0.2",
+    "@vercel/blob": "latest",
+    "clsx": "latest",
+    "exceljs": "latest",
+    "lucide-react": "latest",
+    "next": "^16.1.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "xlsx": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "eslint": "latest",
+    "eslint-config-next": "^16.1.6",
+    "tailwindcss": "latest",
+    "typescript": "latest"
+  }
+}
