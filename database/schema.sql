@@ -370,6 +370,7 @@ create table if not exists previous_boq_uploads (
   measurement_standard text,
   status text not null default 'uploaded'
     check (status in ('uploaded', 'analyzing', 'analyzed', 'failed')),
+  error_message text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

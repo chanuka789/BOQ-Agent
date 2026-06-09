@@ -166,12 +166,12 @@ export async function analyzePreviousBoqUpload(
       });
     }
 
-    await sql`update previous_boq_uploads set status = 'analyzed', updated_at = now() where id = ${upload.id}`;
+    await sql`update previous_boq_uploads set status = 'analyzed', error_message = null, updated_at = now() where id = ${upload.id}`;
     return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error analysing previous BOQ.";
     console.error(`App-wide previous BOQ analysis failed for ${upload.file_name}:`, error);
-    await sql`update previous_boq_uploads set status = 'failed', updated_at = now() where id = ${upload.id}`.catch(
+    await sql`update previous_boq_uploads set status = 'failed', error_message = ${message}, updated_at = now() where id = ${upload.id}`.catch(
       () => {}
     );
     return { success: false, error: message };

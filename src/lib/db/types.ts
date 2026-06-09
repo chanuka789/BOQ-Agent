@@ -159,6 +159,7 @@ export type PreviousBoqUploadRow = {
   storage_url: string | null;
   measurement_standard: string | null;
   status: "uploaded" | "analyzing" | "analyzed" | "failed";
+  error_message?: string | null;
   created_at: string;
   updated_at: string;
 };

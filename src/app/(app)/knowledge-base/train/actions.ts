@@ -1,7 +1,6 @@
 "use server";
 
 import { del } from "@vercel/blob";
-import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getSql } from "@/lib/db/client";
@@ -10,6 +9,38 @@ import {
   analyzePreviousBoqUpload,
   getPreviousBoqUploadById
 } from "@/lib/knowledge/analyze-app-upload";
+import type { PreviousBoqUploadRow } from "@/lib/db/types";
+
+/**
+ * Register an uploaded previous BOQ (app-wide) and analyse it synchronously.
+ * Called by the client right after the blob upload resolves, so analysis runs
+ * reliably without depending on the Vercel Blob webhook.
+ */
+export async function registerUploadAction(input: {
+  url: string;
+  fileName: string;
+  measurementStandard?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireCurrentAppUser();
+  const sql = getSql();
+
+  const rows = (await sql`
+    insert into previous_boq_uploads (
+      uploaded_by, file_name, storage_url, measurement_standard, status
+    )
+    values (
+      ${user.id}, ${input.fileName}, ${input.url},
+      ${input.measurementStandard ?? null}, 'uploaded'
+    )
+    returning *
+  `) as PreviousBoqUploadRow[];
+
+  const result = await analyzePreviousBoqUpload(rows[0]);
+
+  revalidatePath("/knowledge-base/train");
+  revalidatePath("/knowledge-base");
+  return result.success ? { ok: true } : { ok: false, error: result.error };
+}
 
 export async function reanalyzeUploadAction(formData: FormData) {
   await requireCurrentAppUser();
@@ -17,11 +48,11 @@ export async function reanalyzeUploadAction(formData: FormData) {
   const upload = await getPreviousBoqUploadById(id);
   if (!upload) throw new Error("Upload not found.");
 
-  const sql = getSql();
-  await sql`update previous_boq_uploads set status = 'analyzing', updated_at = now() where id = ${id}`;
-  after(() => analyzePreviousBoqUpload(upload));
+  // Analyse synchronously so it runs reliably.
+  await analyzePreviousBoqUpload(upload);
 
   revalidatePath("/knowledge-base/train");
+  revalidatePath("/knowledge-base");
 }
 
 export async function deleteUploadAction(formData: FormData) {

@@ -15,6 +15,8 @@ import {
   disableKnowledgeAction
 } from "./actions";
 
+export const maxDuration = 60;
+
 const ASPECTS: Array<{ key: keyof AppKnowledgeRow; label: string }> = [
   { key: "description_patterns", label: "Description patterns" },
   { key: "item_wording_patterns", label: "Item wording" },
@@ -62,7 +64,7 @@ export default async function KnowledgeBasePage({
       <>
         <PageHeader
           title="Knowledge base"
-          description="App-wide BOQ knowledge learned from previous BOQs, reused by the agents on every project. Approve, edit, disable, or delete records here."
+          description="App-wide BOQ knowledge learned from previous BOQs, reused by the agents on every project. Approving a record also adds matching rules to the BOQ rule library. Approve, edit, disable, or delete records here."
           action={
             <Link className="btn btn-primary" href="/knowledge-base/train">
               <Brain size={16} aria-hidden="true" />
