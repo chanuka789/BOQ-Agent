@@ -1,12 +1,16 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
+import { after } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { addActivityLog } from "@/lib/db/activity";
+import { getSql } from "@/lib/db/client";
 import { assertProjectAccess } from "@/lib/db/projects";
 import { createProjectFile } from "@/lib/db/files";
 import { updateProjectStatus } from "@/lib/db/projects";
 import { createTemplateRecordForFile } from "@/lib/db/templates";
 import { getCurrentAppUser } from "@/lib/db/users";
+import { analyzePreviousBoqFile } from "@/lib/knowledge/analyze-previous-boq";
+import type { ProjectRow } from "@/lib/db/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +19,7 @@ class UploadConfigurationError extends Error {}
 
 const clientPayloadSchema = z.object({
   projectId: z.string().uuid(),
-  fileRole: z.enum(["source_document", "boq_template"]),
+  fileRole: z.enum(["source_document", "boq_template", "previous_boq"]),
   fileType: z.string().min(2),
   sizeBytes: z.number().nonnegative().optional()
 });
@@ -178,6 +182,23 @@ export async function POST(request: Request) {
             });
           }
 
+          // Previous BOQs are analysed so the agents can learn the firm's
+          // house style. Run after the response so the upload returns quickly.
+          if (parsed.fileRole === "previous_boq") {
+            const sql = getSql();
+            const projectRows = (await sql`
+              select id, measurement_standard from projects where id = ${parsed.projectId} limit 1
+            `) as Pick<ProjectRow, "id" | "measurement_standard">[];
+            const project = projectRows[0];
+            if (project) {
+              after(() =>
+                analyzePreviousBoqFile(project, file).catch((analysisError) =>
+                  logUploadError("Previous BOQ analysis failed", analysisError)
+                )
+              );
+            }
+          }
+
           await updateProjectStatus({
             projectId: parsed.projectId,
             status: "documents_uploaded"
@@ -189,7 +210,9 @@ export async function POST(request: Request) {
             action:
               parsed.fileRole === "boq_template"
                 ? "template.uploaded"
-                : "file.uploaded",
+                : parsed.fileRole === "previous_boq"
+                  ? "previous_boq.uploaded"
+                  : "file.uploaded",
             details: {
               pathname: blob.pathname,
               url: blob.url,

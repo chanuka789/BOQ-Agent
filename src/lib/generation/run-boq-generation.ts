@@ -30,6 +30,13 @@ export async function runBoqGeneration(projectId: string, jobId: string): Promis
 
     if (!project) throw new Error("Project not found.");
 
+    // Only true source documents (drawings, specs, schedules) feed generation.
+    // Previous BOQs inform the house style via learned knowledge, and templates
+    // drive the export — neither should be copied as raw source content.
+    const sourceFiles = allFiles.filter(
+      (file) => file.file_type === "source_document"
+    );
+
     await updateAgentJob(jobId, {
       status: "running",
       currentStep: "Identifying target trades",
@@ -96,7 +103,7 @@ export async function runBoqGeneration(projectId: string, jobId: string): Promis
             projectId,
             trade,
             scope: project.scope,
-            fileIds: allFiles.map((f) => f.id),
+            fileIds: sourceFiles.map((f) => f.id),
             jobId
           })
         });

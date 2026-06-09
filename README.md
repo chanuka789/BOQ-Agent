@@ -8,13 +8,25 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
 
 - Clerk-protected app shell with dashboard and project wizard.
 - Neon Postgres schema for projects, files, rules, templates, BOQ items, revisions, queries, assumptions, jobs, notifications, activity, and AI usage.
-- Vercel Blob direct-upload route for source documents and BOQ templates.
+- Vercel Blob direct-upload route for source documents, BOQ templates, and previous BOQs.
+- Previous BOQ learning: uploaded past bills are analysed and stored as reusable
+  house-style knowledge (description patterns, item wording, trade/section
+  structure, headings, numbering, unit usage, measurement-standard usage,
+  inclusions/exclusions, formatting, and summary/page structure). The agents read
+  this knowledge when generating new drafts so the output matches your style.
 - U-View BOQ template profile seed based on the supplied Bill No. 1 to Bill No. 8.4 workbooks.
 - Template parser foundation for future BOQ formats.
 - Rule library with editable unit/description rules.
+- Measurement-method-aware generation (POMI / NRM2 / NRM1 / Custom). Units are
+  never guessed — they are checked against the selected method, the rule library,
+  the uploaded documents, and the learned previous-BOQ patterns, or a query is raised.
 - Generation queue screen and OpenRouter provider layer for MiniMax M3.
 - BOQ review grid with inline edits, autosave actions, status filters, confidence badges, and locked blank quantity/rate/amount columns.
-- Query register, assumption register, export preview, and setup page.
+- Query register, assumption register, and a working Excel export.
+- Excel export (ExcelJS): a formatted workbook with a BOQ sheet grouped by trade
+  section (headings, descriptions, units; blank quantity/rate/amount columns),
+  plus Summary/Collection, Assumptions, Queries (RFI), and an AI Review Notice
+  sheet. Structure and summary layout follow the learned previous-BOQ style.
 
 ## Configure These Services
 
@@ -29,6 +41,9 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
 3. Create a Neon Postgres database and set `DATABASE_URL`.
 4. In Neon SQL editor, run:
    - `database/schema.sql`
+   - `database/migration_previous_boq_knowledge.sql` (adds the `boq_knowledge`
+     table on databases created before previous-BOQ learning; `schema.sql`
+     already includes it for fresh installs)
    - `database/seed_template_profiles.sql`
    - `database/seed_rules.sql`
 5. Create/connect a Vercel Blob store and confirm `BLOB_READ_WRITE_TOKEN` is available in Vercel.

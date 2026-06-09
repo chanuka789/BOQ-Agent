@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
 import {
+  BookMarked,
   ClipboardList,
   Download,
   FileCheck2,
@@ -30,8 +31,9 @@ type AppShellProps = {
 
 const projectNav = [
   { label: "Upload documents", icon: UploadCloud, segment: "upload" },
+  { label: "Previous BOQs", icon: Library, segment: "previous-boqs" },
   { label: "Document review", icon: FileSearch, segment: "document-review" },
-  { label: "BOQ rule library", icon: Library, segment: "rules" },
+  { label: "BOQ rule library", icon: BookMarked, segment: "rules" },
   { label: "Generate BOQ", icon: Sparkles, segment: "generate" },
   { label: "BOQ review", icon: Table2, segment: "boq-review" },
   { label: "Query register", icon: FileQuestion, segment: "queries" },

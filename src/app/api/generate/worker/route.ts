@@ -4,9 +4,10 @@ import { getAIProvider } from "@/lib/ai/providers";
 import { extractFileText, getVisionPayload, VisionPayload } from "@/lib/documents/extractor";
 import { insertBoqItemsBulk, insertBoqQueriesBulk, insertBoqAssumptionsBulk } from "@/lib/db/boq";
 import { getProjectFiles } from "@/lib/db/files";
+import { getProjectKnowledge, buildKnowledgePromptNotes } from "@/lib/db/knowledge";
 import { getRules } from "@/lib/db/rules";
 import { getProjectTemplates } from "@/lib/db/templates";
-import { boqGeneratorSystemPrompt } from "@/prompts/boq-generator";
+import { buildBoqGeneratorSystemPrompt } from "@/prompts/boq-generator";
 import type { ProjectRow } from "@/lib/db/types";
 
 type GenerationResult = {
@@ -92,6 +93,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 4b. Load the style learned from this firm's previous BOQs.
+    const knowledgeRows = await getProjectKnowledge(projectId);
+    const knowledgeNotes = buildKnowledgePromptNotes(knowledgeRows);
+
     // 5. Build template style notes
     const templates = await getProjectTemplates(projectId);
     const templateStyleNotes: string[] = templates.flatMap((t) =>
@@ -116,15 +121,20 @@ export async function POST(req: NextRequest) {
         (r.exclusions ? ` [excl: ${r.exclusions}]` : "")
     );
 
+    const systemPrompt = buildBoqGeneratorSystemPrompt({
+      measurementStandard: project.measurement_standard,
+      knowledgeNotes
+    });
+
     const tradeSystemPrompt = `
-${boqGeneratorSystemPrompt}
+${systemPrompt}
 
 You are a specialized Trade Agent for: **${trade}** under scope **${scope ?? "Architecture + Internal Design"}**.
 Your task is to analyze the source documents and generate BOQ items ONLY for the trade: **${trade}**.
 Do NOT generate items for any other trades. If the source documents do not contain items for **${trade}**, return an empty list of BOQ items, but you can raise queries or make assumptions if relevant.
 
-Ensure you strictly follow the POMI measurement standard and the following rules for this trade:
-${ruleList.length > 0 ? ruleList.map((r) => `- ${r}`).join("\n") : "- No specific trade rules found. Follow standard POMI requirements for " + trade + "."}
+Follow the **${project.measurement_standard}** measurement method and these rules for this trade:
+${ruleList.length > 0 ? ruleList.map((r) => `- ${r}`).join("\n") : "- No specific trade rules found. Follow " + project.measurement_standard + " requirements and the learned house style for " + trade + "."}
 `;
 
     const userPromptContent: any[] = [
