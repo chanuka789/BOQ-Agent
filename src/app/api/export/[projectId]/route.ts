@@ -5,7 +5,8 @@ import {
   getGeneration,
   getLatestGeneration,
   recordGenerationExport,
-  updateGenerationStatus
+  updateGenerationStatus,
+  upsertAgentLog
 } from "@/lib/db/generations";
 import { getProjectKnowledge } from "@/lib/db/knowledge";
 import { assertProjectAccess } from "@/lib/db/projects";
@@ -83,6 +84,15 @@ export async function GET(
         createdBy: user.id
       }).catch(() => {});
       await updateGenerationStatus(generationId, "exported").catch(() => {});
+      await upsertAgentLog({
+        generationId,
+        projectId,
+        agentId: "export-agent",
+        agentLabel: "Excel Export Agent",
+        status: "completed",
+        progress: 100,
+        statusText: `Formatted ${items.length} item(s) into ${fileName} using the BOQ template and learned style.`
+      }).catch(() => {});
     }
 
     await addActivityLog({

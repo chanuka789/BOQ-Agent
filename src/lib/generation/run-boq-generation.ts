@@ -3,7 +3,7 @@ import "server-only";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { selectSectionAgents, type FileSignal, type SectionAgent } from "@/lib/agents/sections";
-import { updateAgentJob } from "@/lib/db/boq";
+import { insertBoqQueriesBulk, updateAgentJob } from "@/lib/db/boq";
 import { getSql } from "@/lib/db/client";
 import { getProjectFiles } from "@/lib/db/files";
 import { updateGenerationStatus, upsertAgentLog } from "@/lib/db/generations";
@@ -175,6 +175,25 @@ export async function runBoqGeneration(
           })
         )
       );
+      // Pipeline agents that run after the section agents.
+      await upsertAgentLog({
+        generationId,
+        projectId,
+        agentId: "qa-agent",
+        agentLabel: "BOQ QA Agent",
+        status: "waiting",
+        progress: 0,
+        statusText: "Waiting — will start after section agents complete."
+      });
+      await upsertAgentLog({
+        generationId,
+        projectId,
+        agentId: "export-agent",
+        agentLabel: "Excel Export Agent",
+        status: "waiting",
+        progress: 0,
+        statusText: "Waiting — runs when you download the Excel file."
+      });
     }
 
     await updateAgentJob(jobId, {
@@ -282,17 +301,35 @@ export async function runBoqGeneration(
 
     await updateAgentJob(jobId, {
       status: "running",
-      currentStep: "Running QA & deduplication checks",
+      currentStep: "BOQ QA Agent — checking duplicates, units and missing data",
       progress: 85
     });
+    if (generationId) {
+      await upsertAgentLog({
+        generationId,
+        projectId,
+        agentId: "qa-agent",
+        agentLabel: "BOQ QA Agent",
+        status: "running",
+        progress: 40,
+        statusText: "Checking duplicate items, incorrect units and missing source references."
+      });
+    }
 
     // QA & dedup — scoped to THIS generation so other generations are untouched.
     const items = (await sql`
-      select id, trade, description
+      select id, trade, description, unit, item_type, source_reference
       from boq_items
       where project_id = ${projectId}
         and (${generationId ?? null}::uuid is null or generation_id = ${generationId ?? null})
-    `) as Array<{ id: string; trade: string; description: string }>;
+    `) as Array<{
+      id: string;
+      trade: string;
+      description: string;
+      unit: string | null;
+      item_type: string;
+      source_reference: string | null;
+    }>;
 
     const seen = new Set<string>();
     const duplicatesToDelete: string[] = [];
@@ -305,12 +342,54 @@ export async function runBoqGeneration(
       await sql`delete from boq_items where id = any(${duplicatesToDelete})`;
     }
 
+    // QA flags raised as queries (not silent fixes), capped to avoid flooding.
+    const removed = new Set(duplicatesToDelete);
+    const measured = items.filter(
+      (i) => !removed.has(i.id) && i.item_type === "measured"
+    );
+    const missingUnit = measured.filter((i) => !i.unit || i.unit.trim() === "");
+    const missingRef = measured.filter(
+      (i) => !i.source_reference || i.source_reference.trim() === ""
+    );
+
+    const qaQueries = [
+      ...missingUnit.slice(0, 25).map((i) => ({
+        issue: `Missing unit on measured item: "${i.description.slice(0, 120)}"`,
+        clarification_needed:
+          "QA Agent: this measured item has no unit. Confirm the correct unit of measurement against the method, rules and drawings.",
+        source_reference: i.source_reference ?? null
+      })),
+      ...missingRef.slice(0, 25).map((i) => ({
+        issue: `Missing source reference: "${i.description.slice(0, 120)}"`,
+        clarification_needed:
+          "QA Agent: this item has no source reference. Confirm the spec clause, drawing or schedule it derives from.",
+        source_reference: null
+      }))
+    ];
+    if (qaQueries.length > 0) {
+      await insertBoqQueriesBulk(projectId, qaQueries, generationId).catch(() => {});
+    }
+
+    if (generationId) {
+      await upsertAgentLog({
+        generationId,
+        projectId,
+        agentId: "qa-agent",
+        agentLabel: "BOQ QA Agent",
+        status: "completed",
+        progress: 100,
+        statusText: `Removed ${duplicatesToDelete.length} duplicate(s); flagged ${missingUnit.length} unit and ${missingRef.length} source-reference issue(s) as queries.`,
+        queriesCount: qaQueries.length
+      });
+    }
+
     const successful = results.filter((r) => r.success);
     const totalItems = Math.max(
       results.reduce((acc, r) => acc + r.itemsCount, 0) - duplicatesToDelete.length,
       0
     );
-    const totalQueries = results.reduce((acc, r) => acc + r.queriesCount, 0);
+    const totalQueries =
+      results.reduce((acc, r) => acc + r.queriesCount, 0) + qaQueries.length;
     const totalAssumptions = results.reduce((acc, r) => acc + r.assumptionsCount, 0);
     const totalCost = results.reduce((acc, r) => acc + r.estimatedCostUsd, 0);
 
