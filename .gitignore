@@ -28,3 +28,6 @@ Thumbs.db
 
 # typescript build info
 tsconfig.tsbuildinfo
+
+# package lock (repo uses unpinned "latest" deps)
+package-lock.json
