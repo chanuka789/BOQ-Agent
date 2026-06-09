@@ -4,6 +4,8 @@ import { Badge } from "@/components/status-badge";
 import { isDatabaseConfigured } from "@/lib/db/client";
 import { getTemplateProfiles } from "@/lib/db/templates";
 
+export const dynamic = "force-dynamic";
+
 export default async function SettingsPage() {
   const env = [
     ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)],
