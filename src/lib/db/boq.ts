@@ -212,7 +212,9 @@ export async function updateAgentJob(
       current_step = ${fields.currentStep},
       progress = ${fields.progress},
       message = ${fields.message ?? null},
-      estimated_cost_usd = ${fields.estimatedCostUsd != null ? fields.estimatedCostUsd.toFixed(6) : null},
+      estimated_cost_usd = ${fields.estimatedCostUsd != null ? fields.estimatedCostUsd.toFixed(4) : null},
+      started_at = case when ${fields.status} = 'running' and started_at is null then now() else started_at end,
+      completed_at = case when ${fields.status} in ('completed', 'failed') then now() else completed_at end,
       updated_at = now()
     where id = ${jobId}
   `;

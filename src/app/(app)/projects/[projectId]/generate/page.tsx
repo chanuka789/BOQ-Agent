@@ -106,7 +106,14 @@ export default async function GeneratePage({
                         <JobStatusBadge status={job.status} />
                       </td>
                       <td>{job.progress}%</td>
-                      <td>{job.current_step ?? job.message ?? "Waiting"}</td>
+                      <td>
+                        <span>{job.current_step ?? "Waiting"}</span>
+                        {job.status === "failed" && job.message && (
+                          <p className="mt-1 text-xs text-[var(--danger)] break-words max-w-[280px]">
+                            {job.message}
+                          </p>
+                        )}
+                      </td>
                       <td>{formatDate(job.created_at)}</td>
                       <td>
                         <Link className="font-bold text-[var(--primary)]" href={`/projects/${projectId}/boq-review`}>
