@@ -19,6 +19,7 @@ import {
   Settings,
   Sparkles,
   Table2,
+  Trash2,
   UploadCloud
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -107,6 +108,13 @@ export function AppShell({ children, userName, userEmail }: AppShellProps) {
             <div className="hidden px-3 pb-2 pt-5 text-[11px] font-extrabold uppercase text-white/55 lg:block">
               Workspace
             </div>
+            <SidebarLink
+              href="/recycle-bin"
+              active={pathname === "/recycle-bin"}
+              icon={Trash2}
+            >
+              Recycle Bin
+            </SidebarLink>
             <SidebarLink
               href="/settings"
               active={pathname === "/settings"}

@@ -5,6 +5,10 @@ import { headers } from "next/headers";
 import { updateAgentJob } from "@/lib/db/boq";
 import { getSql } from "@/lib/db/client";
 import { getProjectFiles } from "@/lib/db/files";
+import {
+  updateGenerationStatus,
+  upsertAgentLog
+} from "@/lib/db/generations";
 import type { ProjectRow } from "@/lib/db/types";
 
 async function getProjectById(projectId: string): Promise<ProjectRow | null> {
@@ -15,13 +19,20 @@ async function getProjectById(projectId: string): Promise<ProjectRow | null> {
   return rows[0] ?? null;
 }
 
-export async function runBoqGeneration(projectId: string, jobId: string): Promise<void> {
+export async function runBoqGeneration(
+  projectId: string,
+  jobId: string,
+  generationId?: string | null
+): Promise<void> {
   try {
     await updateAgentJob(jobId, {
       status: "running",
       currentStep: "Loading project data",
       progress: 5
     });
+    if (generationId) {
+      await updateGenerationStatus(generationId, "running");
+    }
 
     const [project, allFiles] = await Promise.all([
       getProjectById(projectId),
@@ -75,6 +86,24 @@ export async function runBoqGeneration(projectId: string, jobId: string): Promis
       progress: 30
     });
 
+    // Seed an agent log row per trade so the UI can show live per-agent status.
+    if (generationId) {
+      await Promise.all(
+        trades.map((trade) =>
+          upsertAgentLog({
+            generationId,
+            projectId,
+            agentId: `trade-${trade}`,
+            agentLabel: `${trade} Agent`,
+            scope: project.scope,
+            status: "running",
+            progress: 10,
+            statusText: `Reading source documents for ${trade}.`
+          })
+        )
+      );
+    }
+
     // Determine baseURL dynamically from headers
     let baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     try {
@@ -104,7 +133,8 @@ export async function runBoqGeneration(projectId: string, jobId: string): Promis
             trade,
             scope: project.scope,
             fileIds: sourceFiles.map((f) => f.id),
-            jobId
+            jobId,
+            generationId
           })
         });
 
@@ -113,7 +143,7 @@ export async function runBoqGeneration(projectId: string, jobId: string): Promis
           throw new Error(`Worker for trade "${trade}" failed: ${errText}`);
         }
 
-        return (await res.json()) as {
+        const data = (await res.json()) as {
           success: boolean;
           trade: string;
           itemsCount: number;
@@ -121,8 +151,42 @@ export async function runBoqGeneration(projectId: string, jobId: string): Promis
           assumptionsCount: number;
           estimatedCostUsd: number;
         };
+
+        if (generationId) {
+          await upsertAgentLog({
+            generationId,
+            projectId,
+            agentId: `trade-${trade}`,
+            agentLabel: `${trade} Agent`,
+            scope: project.scope,
+            status: data.itemsCount > 0 ? "completed" : "skipped",
+            progress: 100,
+            statusText:
+              data.itemsCount > 0
+                ? `Generated ${data.itemsCount} ${trade} item(s).`
+                : `No ${trade} items found in the uploaded documents.`,
+            itemsCount: data.itemsCount,
+            queriesCount: data.queriesCount,
+            assumptionsCount: data.assumptionsCount
+          });
+        }
+
+        return data;
       } catch (err) {
         console.error(`Error in trade worker "${trade}":`, err);
+        if (generationId) {
+          await upsertAgentLog({
+            generationId,
+            projectId,
+            agentId: `trade-${trade}`,
+            agentLabel: `${trade} Agent`,
+            scope: project.scope,
+            status: "failed",
+            progress: 100,
+            statusText: `Failed to generate ${trade} items.`,
+            errorMessage: err instanceof Error ? err.message : String(err)
+          }).catch(() => {});
+        }
         return {
           success: false,
           trade,
@@ -143,11 +207,12 @@ export async function runBoqGeneration(projectId: string, jobId: string): Promis
       progress: 85
     });
 
-    // QA and Merging step: remove any duplicate items across trades
+    // QA & dedup — scoped to THIS generation so other generations are untouched.
     const items = (await sql`
       select id, trade, description
       from boq_items
       where project_id = ${projectId}
+        and (${generationId ?? null}::uuid is null or generation_id = ${generationId ?? null})
     `) as Array<{ id: string; trade: string; description: string }>;
 
     const seen = new Set<string>();
@@ -189,6 +254,15 @@ export async function runBoqGeneration(projectId: string, jobId: string): Promis
       estimatedCostUsd: totalCost
     });
 
+    if (generationId) {
+      await updateGenerationStatus(generationId, "completed", {
+        itemCount: Math.max(totalItems, 0),
+        queryCount: totalQueries,
+        assumptionCount: totalAssumptions,
+        estimatedCostUsd: totalCost
+      });
+    }
+
     // Transition project status to ready_for_review
     await sql`
       update projects
@@ -210,5 +284,8 @@ export async function runBoqGeneration(projectId: string, jobId: string): Promis
       progress: 0,
       message
     }).catch(() => {});
+    if (generationId) {
+      await updateGenerationStatus(generationId, "failed").catch(() => {});
+    }
   }
 }

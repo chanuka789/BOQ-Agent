@@ -4,29 +4,34 @@ import { PageHeader } from "@/components/page-header";
 import { ReviewBanner } from "@/components/review-banner";
 import { SetupRequired } from "@/components/setup-required";
 import { getBoqItems, getBoqQueries, getBoqAssumptions } from "@/lib/db/boq";
+import { resolveGeneration } from "@/lib/db/generations";
 import { getProjectForCurrentUser } from "@/lib/db/projects";
 import { BoqReviewClient } from "./review-client";
 
 export default async function BoqReviewPage({
-  params
+  params,
+  searchParams
 }: {
   params: Promise<{ projectId: string }>;
+  searchParams: Promise<{ generation?: string }>;
 }) {
   const { projectId } = await params;
+  const { generation: generationParam } = await searchParams;
 
   try {
-    const [{ project }, items, queries, assumptions] = await Promise.all([
-      getProjectForCurrentUser(projectId),
-      getBoqItems(projectId),
-      getBoqQueries(projectId),
-      getBoqAssumptions(projectId)
+    const { project } = await getProjectForCurrentUser(projectId);
+    const { generation, generationId } = await resolveGeneration(projectId, generationParam);
+    const [items, queries, assumptions] = await Promise.all([
+      getBoqItems(projectId, generationId),
+      getBoqQueries(projectId, generationId),
+      getBoqAssumptions(projectId, generationId)
     ]);
 
     return (
       <>
         <PageHeader
           title="BOQ Review"
-          description={`${project.name} · ${project.measurement_standard} · descriptions and units only.`}
+          description={`${project.name} · ${project.measurement_standard}${generation ? ` · ${generation.label}` : ""} · descriptions and units only.`}
         />
         <ReviewBanner />
 

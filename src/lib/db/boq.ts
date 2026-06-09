@@ -8,36 +8,39 @@ import type {
   ReviewStatus
 } from "@/lib/db/types";
 
-export async function getBoqItems(projectId: string) {
+export async function getBoqItems(projectId: string, generationId?: string | null) {
   const sql = getSql();
   const rows = (await sql`
     select *
     from boq_items
     where project_id = ${projectId}
+      and (${generationId ?? null}::uuid is null or generation_id = ${generationId ?? null})
     order by section, trade, item_no nulls last, created_at
   `) as BoqItemRow[];
 
   return rows;
 }
 
-export async function getBoqQueries(projectId: string) {
+export async function getBoqQueries(projectId: string, generationId?: string | null) {
   const sql = getSql();
   const rows = (await sql`
     select *
     from boq_queries
     where project_id = ${projectId}
+      and (${generationId ?? null}::uuid is null or generation_id = ${generationId ?? null})
     order by created_at desc
   `) as BoqQueryRow[];
 
   return rows;
 }
 
-export async function getBoqAssumptions(projectId: string) {
+export async function getBoqAssumptions(projectId: string, generationId?: string | null) {
   const sql = getSql();
   const rows = (await sql`
     select *
     from boq_assumptions
     where project_id = ${projectId}
+      and (${generationId ?? null}::uuid is null or generation_id = ${generationId ?? null})
     order by created_at desc
   `) as BoqAssumptionRow[];
 
@@ -167,11 +170,15 @@ export async function updateBoqItemFields({
   }
 }
 
-export async function createGenerationJob(projectId: string) {
+export async function createGenerationJob(
+  projectId: string,
+  generationId?: string | null
+) {
   const sql = getSql();
   const rows = (await sql`
     insert into agent_jobs (
       project_id,
+      generation_id,
       job_type,
       status,
       progress,
@@ -181,6 +188,7 @@ export async function createGenerationJob(projectId: string) {
     )
     values (
       ${projectId},
+      ${generationId ?? null},
       'boq_generation',
       'queued',
       0,
@@ -290,27 +298,30 @@ export async function insertBoqItemsBulk(
     source_reference?: string | null;
     confidence_score?: number;
     review_status?: ReviewStatus;
-  }>
+  }>,
+  generationId?: string | null
 ) {
   if (items.length === 0) return;
   const sql = getSql() as any;
 
   const columns = [
-    "project_id", "item_no", "section", "trade", "item_type", "description",
-    "unit", "source_reference", "confidence_score", "review_status", "ai_generated"
+    "project_id", "generation_id", "item_no", "section", "trade", "item_type",
+    "description", "unit", "source_reference", "confidence_score", "review_status",
+    "ai_generated"
   ];
-  
+
   const placeholders: string[] = [];
   const params: any[] = [];
-  
+
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     const offset = i * columns.length;
     const itemPlaceholders = columns.map((_, colIdx) => `$${offset + colIdx + 1}`);
     placeholders.push(`(${itemPlaceholders.join(", ")})`);
-    
+
     params.push(
       projectId,
+      generationId ?? null,
       item.item_no ?? null,
       item.section ?? "Architecture + Internal Design",
       item.trade,
@@ -323,78 +334,82 @@ export async function insertBoqItemsBulk(
       true
     );
   }
-  
+
   const queryStr = `
     insert into boq_items (${columns.join(", ")})
     values ${placeholders.join(", ")}
   `;
-  
+
   await sql(queryStr, params);
 }
 
 export async function insertBoqQueriesBulk(
   projectId: string,
-  queries: Array<{ issue: string; clarification_needed: string; source_reference?: string | null }>
+  queries: Array<{ issue: string; clarification_needed: string; source_reference?: string | null }>,
+  generationId?: string | null
 ) {
   if (queries.length === 0) return;
   const sql = getSql() as any;
-  
-  const columns = ["project_id", "issue", "clarification_needed", "source_reference", "status"];
+
+  const columns = ["project_id", "generation_id", "issue", "clarification_needed", "source_reference", "status"];
   const placeholders: string[] = [];
   const params: any[] = [];
-  
+
   for (let i = 0; i < queries.length; i++) {
     const q = queries[i];
     const offset = i * columns.length;
     const qPlaceholders = columns.map((_, colIdx) => `$${offset + colIdx + 1}`);
     placeholders.push(`(${qPlaceholders.join(", ")})`);
-    
+
     params.push(
       projectId,
+      generationId ?? null,
       q.issue,
       q.clarification_needed,
       q.source_reference ?? null,
       "open"
     );
   }
-  
+
   const queryStr = `
     insert into boq_queries (${columns.join(", ")})
     values ${placeholders.join(", ")}
   `;
-  
+
   await sql(queryStr, params);
 }
 
 export async function insertBoqAssumptionsBulk(
   projectId: string,
-  assumptions: Array<{ assumption: string; source_reference?: string | null }>
+  assumptions: Array<{ assumption: string; source_reference?: string | null }>,
+  generationId?: string | null
 ) {
   if (assumptions.length === 0) return;
   const sql = getSql() as any;
-  
-  const columns = ["project_id", "assumption", "source_reference"];
+
+  const columns = ["project_id", "generation_id", "assumption", "source_reference"];
   const placeholders: string[] = [];
   const params: any[] = [];
-  
+
   for (let i = 0; i < assumptions.length; i++) {
     const a = assumptions[i];
     const offset = i * columns.length;
     const aPlaceholders = columns.map((_, colIdx) => `$${offset + colIdx + 1}`);
     placeholders.push(`(${aPlaceholders.join(", ")})`);
-    
+
     params.push(
       projectId,
+      generationId ?? null,
       a.assumption,
       a.source_reference ?? null
     );
   }
-  
+
   const queryStr = `
     insert into boq_assumptions (${columns.join(", ")})
     values ${placeholders.join(", ")}
   `;
-  
+
   await sql(queryStr, params);
 }
 

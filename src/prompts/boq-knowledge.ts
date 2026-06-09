@@ -42,6 +42,26 @@ practical guidance that another QS or an AI could follow to reproduce the style:
 11. summary_structure — How the summary / collection / grand summary pages are
     structured (per-bill collections, summary sheet, "To Summary", grand total).
 
+Additional aspects to capture at document level:
+12. collection_structure — How collection pages work (per-section "Carried to
+    Collection", collection totals feeding the summary).
+13. cover_page_style — Front/cover page style if present (title block, project,
+    client, bill number, revision).
+14. excel_formatting_style — Excel/visual formatting: fonts, bold headings,
+    borders, shaded section rows, merged cells, indentation.
+15. column_structure — The exact column order/layout (e.g. Item | Description |
+    Unit | Qty | Rate | Amount) and any extra columns.
+16. client_company_style — Anything indicating a client-specific or
+    company-specific house style (naming, prefixes, standard preambles).
+
+CRITICAL — analyse BY SCOPE. A BOQ usually mixes disciplines. Split your analysis
+into the discipline scopes actually present and report each scope separately in a
+"scopes" array. Recognised scopes: Architectural, Internal Design, Structural,
+Mechanical, Electrical, Plumbing, Fire Fighting, Furniture / FF&E, Landscape,
+External Works. Only include a scope if its items actually appear. For each scope,
+give that scope's own description patterns, item wording, inclusions, exclusions,
+unit usage, numbering, and example items.
+
 Also return:
 - sample_items: up to 12 representative item rows you actually saw, each with
   item_no, description, unit, section (use "" when not present).
@@ -49,21 +69,41 @@ Also return:
 
 OUTPUT — strict JSON only, no text outside the object:
 {
+  "measurement_standard_usage": "string",
   "description_patterns": "string",
   "item_wording_patterns": "string",
   "trade_section_structure": "string",
   "heading_structure": "string",
   "numbering_style": "string",
   "unit_usage_patterns": "string",
-  "measurement_standard_usage": "string",
   "inclusions": "string",
   "exclusions": "string",
   "formatting_style": "string",
   "summary_structure": "string",
+  "collection_structure": "string",
+  "cover_page_style": "string",
+  "excel_formatting_style": "string",
+  "column_structure": "string",
+  "client_company_style": "string",
   "sample_items": [
     { "item_no": "A", "description": "...", "unit": "m2", "section": "DIVISION 9 - FINISHES" }
   ],
-  "detected_units": ["m2", "m", "nr"]
+  "detected_units": ["m2", "m", "nr"],
+  "scopes": [
+    {
+      "scope": "Architectural",
+      "description_patterns": "string",
+      "item_wording_patterns": "string",
+      "scope_description_patterns": "string",
+      "inclusions": "string",
+      "exclusions": "string",
+      "unit_usage_patterns": "string",
+      "numbering_style": "string",
+      "heading_structure": "string",
+      "sample_items": [ { "item_no": "A", "description": "...", "unit": "nr", "section": "" } ],
+      "detected_units": ["nr", "m2"]
+    }
+  ]
 }
 
 If a field cannot be determined from the content, return an empty string for it

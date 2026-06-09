@@ -3,27 +3,30 @@ import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { SetupRequired } from "@/components/setup-required";
 import { getBoqAssumptions } from "@/lib/db/boq";
+import { resolveGeneration } from "@/lib/db/generations";
 import { getProjectForCurrentUser } from "@/lib/db/projects";
 import { formatDate } from "@/lib/format";
 
 export default async function AssumptionsPage({
-  params
+  params,
+  searchParams
 }: {
   params: Promise<{ projectId: string }>;
+  searchParams: Promise<{ generation?: string }>;
 }) {
   const { projectId } = await params;
+  const { generation: generationParam } = await searchParams;
 
   try {
-    const [{ project }, assumptions] = await Promise.all([
-      getProjectForCurrentUser(projectId),
-      getBoqAssumptions(projectId)
-    ]);
+    const { project } = await getProjectForCurrentUser(projectId);
+    const { generation, generationId } = await resolveGeneration(projectId, generationParam);
+    const assumptions = await getBoqAssumptions(projectId, generationId);
 
     return (
       <>
         <PageHeader
           title="Assumption register"
-          description={`Assumptions made while drafting ${project.name}. These remain visible until a QS confirms or edits the BOQ item.`}
+          description={`Assumptions made while drafting ${project.name}${generation ? ` · ${generation.label}` : ""}. These remain visible until a QS confirms or edits the BOQ item.`}
         />
 
         {assumptions.length === 0 ? (

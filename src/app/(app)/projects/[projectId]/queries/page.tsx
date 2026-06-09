@@ -4,27 +4,30 @@ import { PageHeader } from "@/components/page-header";
 import { SetupRequired } from "@/components/setup-required";
 import { QueryStatusBadge } from "@/components/status-badge";
 import { getBoqQueries } from "@/lib/db/boq";
+import { resolveGeneration } from "@/lib/db/generations";
 import { getProjectForCurrentUser } from "@/lib/db/projects";
 import { formatDate } from "@/lib/format";
 
 export default async function QueriesPage({
-  params
+  params,
+  searchParams
 }: {
   params: Promise<{ projectId: string }>;
+  searchParams: Promise<{ generation?: string }>;
 }) {
   const { projectId } = await params;
+  const { generation: generationParam } = await searchParams;
 
   try {
-    const [{ project }, queries] = await Promise.all([
-      getProjectForCurrentUser(projectId),
-      getBoqQueries(projectId)
-    ]);
+    const { project } = await getProjectForCurrentUser(projectId);
+    const { generation, generationId } = await resolveGeneration(projectId, generationParam);
+    const queries = await getBoqQueries(projectId, generationId);
 
     return (
       <>
         <PageHeader
           title="Query register"
-          description={`Clarifications raised for ${project.name}. Missing or conflicting information becomes a query instead of a guess.`}
+          description={`Clarifications raised for ${project.name}${generation ? ` · ${generation.label}` : ""}. Missing or conflicting information becomes a query instead of a guess.`}
         />
 
         {queries.length === 0 ? (

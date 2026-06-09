@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Download, FileSpreadsheet } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { LockedCell } from "@/components/locked-cell";
@@ -6,42 +7,49 @@ import { ReviewBanner } from "@/components/review-banner";
 import { SetupRequired } from "@/components/setup-required";
 import { Badge } from "@/components/status-badge";
 import { getBoqAssumptions, getBoqItems, getBoqQueries } from "@/lib/db/boq";
+import { getGenerations, getGenerationExports, resolveGeneration } from "@/lib/db/generations";
 import { getAnalyzedKnowledge } from "@/lib/db/knowledge";
 import { getProjectForCurrentUser } from "@/lib/db/projects";
 import { getProjectTemplates } from "@/lib/db/templates";
+import { formatDate } from "@/lib/format";
 
 export default async function ExportPage({
-  params
+  params,
+  searchParams
 }: {
   params: Promise<{ projectId: string }>;
+  searchParams: Promise<{ generation?: string }>;
 }) {
   const { projectId } = await params;
+  const { generation: generationParam } = await searchParams;
 
   try {
-    const [{ project }, templates, items, queries, assumptions, knowledge] =
+    const { project } = await getProjectForCurrentUser(projectId);
+    const { generation, generationId } = await resolveGeneration(projectId, generationParam);
+    const [templates, generations, items, queries, assumptions, knowledge, pastExports] =
       await Promise.all([
-        getProjectForCurrentUser(projectId),
         getProjectTemplates(projectId),
-        getBoqItems(projectId),
-        getBoqQueries(projectId),
-        getBoqAssumptions(projectId),
-        getAnalyzedKnowledge(projectId)
+        getGenerations(projectId),
+        getBoqItems(projectId, generationId),
+        getBoqQueries(projectId, generationId),
+        getBoqAssumptions(projectId, generationId),
+        getAnalyzedKnowledge(projectId),
+        generationId ? getGenerationExports(generationId) : Promise.resolve([])
       ]);
 
     const canExport = items.length > 0;
+    const exportHref = generationId
+      ? `/api/export/${projectId}?generation=${generationId}`
+      : `/api/export/${projectId}`;
 
     return (
       <>
         <PageHeader
           title="Export"
-          description={`Prepare an editable Excel BOQ draft for ${project.name}.`}
+          description={`Editable Excel BOQ draft for ${project.name}${generation ? ` · ${generation.label}` : ""}.`}
           action={
             canExport ? (
-              <a
-                className="btn btn-primary"
-                href={`/api/export/${projectId}`}
-                download
-              >
+              <a className="btn btn-primary" href={exportHref} download>
                 <Download size={16} aria-hidden="true" />
                 Download .xlsx
               </a>
@@ -54,6 +62,29 @@ export default async function ExportPage({
           }
         />
         <ReviewBanner />
+
+        {generations.length > 1 ? (
+          <section className="panel mb-5 p-4">
+            <p className="mb-2 text-xs font-extrabold uppercase text-[var(--muted)]">
+              Choose a generation to export
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {generations.map((g) => (
+                <Link
+                  key={g.id}
+                  href={`/projects/${projectId}/export?generation=${g.id}`}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                    g.id === generationId
+                      ? "border-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]"
+                      : "border-[var(--border)] text-[var(--foreground)]"
+                  }`}
+                >
+                  {g.label} · {g.item_count} items
+                </Link>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {items.length === 0 ? (
           <EmptyState
@@ -126,6 +157,31 @@ export default async function ExportPage({
               <Metric label="Templates" value={templates.length} tone="info" />
               <Metric label="Queries" value={queries.length} tone="warning" />
               <Metric label="Assumptions" value={assumptions.length} />
+
+              {pastExports.length > 0 ? (
+                <div className="card p-4">
+                  <p className="text-sm font-extrabold text-[var(--foreground)]">
+                    Export history
+                  </p>
+                  <ul className="mt-3 space-y-2">
+                    {pastExports.map((exportRow) => (
+                      <li key={exportRow.id} className="flex items-center justify-between gap-2 text-xs">
+                        <a
+                          className="truncate font-semibold text-[var(--primary)]"
+                          href={exportHref}
+                          download
+                          title={exportRow.file_name}
+                        >
+                          {exportRow.file_name}
+                        </a>
+                        <span className="shrink-0 text-[var(--muted)]">
+                          {formatDate(exportRow.created_at)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </aside>
           </div>
         )}
