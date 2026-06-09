@@ -84,9 +84,70 @@ export async function getAppKnowledge(options?: {
   return rows;
 }
 
+export async function getAppKnowledgeById(id: string): Promise<AppKnowledgeRow | null> {
+  const sql = getSql();
+  const rows = (await sql`
+    select * from app_knowledge_base where id = ${id} limit 1
+  `) as AppKnowledgeRow[];
+  return rows[0] ?? null;
+}
+
 export async function setAppKnowledgeStatus(id: string, status: AppKnowledgeStatus) {
   const sql = getSql();
   await sql`update app_knowledge_base set status = ${status}, updated_at = now() where id = ${id}`;
+}
+
+export type AppKnowledgeEditableFields = {
+  scope: string;
+  agentId: string;
+  measurementStandard: string | null;
+  sectionCode: string | null;
+  description_patterns: string | null;
+  item_wording_patterns: string | null;
+  trade_section_structure: string | null;
+  heading_structure: string | null;
+  numbering_style: string | null;
+  unit_usage_patterns: string | null;
+  measurement_standard_usage: string | null;
+  scope_description_patterns: string | null;
+  inclusions: string | null;
+  exclusions: string | null;
+  summary_structure: string | null;
+  collection_structure: string | null;
+  cover_page_style: string | null;
+  excel_formatting_style: string | null;
+  column_structure: string | null;
+  client_company_style: string | null;
+};
+
+export async function updateAppKnowledge(id: string, fields: AppKnowledgeEditableFields) {
+  const sql = getSql();
+  await sql`
+    update app_knowledge_base
+    set
+      scope = ${fields.scope},
+      agent_id = ${fields.agentId},
+      measurement_standard = ${fields.measurementStandard},
+      section_code = ${fields.sectionCode},
+      description_patterns = ${fields.description_patterns},
+      item_wording_patterns = ${fields.item_wording_patterns},
+      trade_section_structure = ${fields.trade_section_structure},
+      heading_structure = ${fields.heading_structure},
+      numbering_style = ${fields.numbering_style},
+      unit_usage_patterns = ${fields.unit_usage_patterns},
+      measurement_standard_usage = ${fields.measurement_standard_usage},
+      scope_description_patterns = ${fields.scope_description_patterns},
+      inclusions = ${fields.inclusions},
+      exclusions = ${fields.exclusions},
+      summary_structure = ${fields.summary_structure},
+      collection_structure = ${fields.collection_structure},
+      cover_page_style = ${fields.cover_page_style},
+      excel_formatting_style = ${fields.excel_formatting_style},
+      column_structure = ${fields.column_structure},
+      client_company_style = ${fields.client_company_style},
+      updated_at = now()
+    where id = ${id}
+  `;
 }
 
 export async function deleteAppKnowledge(id: string) {

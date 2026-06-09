@@ -53,6 +53,10 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
   shows overall %, per-agent %, status (running/waiting/completed/skipped/
   failed) with counts and live status text, and an expandable processing log;
   it auto-refreshes while a generation is running.
+- Knowledge base management screen: an app-wide Knowledge base page lists the
+  learned records by discipline scope, with filters and per-record actions to
+  approve, disable/enable, edit (all learned aspects), and delete. Disabled
+  records are excluded from generation; approved records are preferred.
 
 ## Configure These Services
 

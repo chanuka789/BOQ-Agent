@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
 import {
   BookMarked,
+  Brain,
   ClipboardList,
   Download,
   FileCheck2,
@@ -108,6 +109,13 @@ export function AppShell({ children, userName, userEmail }: AppShellProps) {
             <div className="hidden px-3 pb-2 pt-5 text-[11px] font-extrabold uppercase text-white/55 lg:block">
               Workspace
             </div>
+            <SidebarLink
+              href="/knowledge-base"
+              active={pathname.startsWith("/knowledge-base")}
+              icon={Brain}
+            >
+              Knowledge base
+            </SidebarLink>
             <SidebarLink
               href="/recycle-bin"
               active={pathname === "/recycle-bin"}
