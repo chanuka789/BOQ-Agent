@@ -46,9 +46,8 @@ export function UploadClient({ projectId }: { projectId: string }) {
         await assertUploadReady(projectId);
 
         await upload(`projects/${projectId}/${role}/${file.name}`, file, {
-          access: "private",
+          access: "public",
           handleUploadUrl: "/api/upload",
-          multipart: file.size > 20 * 1024 * 1024,
           clientPayload: JSON.stringify({
             projectId,
             fileRole: role,
