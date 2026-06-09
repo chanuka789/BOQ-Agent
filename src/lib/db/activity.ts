@@ -11,10 +11,14 @@ export async function addActivityLog({
   action: string;
   details?: Record<string, unknown>;
 }) {
-  const sql = getSql();
+  try {
+    const sql = getSql();
 
-  await sql`
-    insert into activity_log (project_id, user_id, action, details)
-    values (${projectId}, ${userId}, ${action}, ${JSON.stringify(details ?? {})}::jsonb)
-  `;
+    await sql`
+      insert into activity_log (project_id, user_id, action, details)
+      values (${projectId}, ${userId}, ${action}, ${JSON.stringify(details ?? {})}::jsonb)
+    `;
+  } catch (error) {
+    console.warn("Activity log skipped", error);
+  }
 }
