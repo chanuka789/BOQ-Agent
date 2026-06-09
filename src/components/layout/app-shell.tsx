@@ -36,7 +36,8 @@ const projectNav = [
   { label: "BOQ review", icon: Table2, segment: "boq-review" },
   { label: "Query register", icon: FileQuestion, segment: "queries" },
   { label: "Assumption register", icon: ClipboardList, segment: "assumptions" },
-  { label: "Export", icon: Download, segment: "export" }
+  { label: "Export", icon: Download, segment: "export" },
+  { label: "Project settings", icon: Settings, segment: "settings" }
 ];
 
 export function AppShell({ children, userName, userEmail }: AppShellProps) {

@@ -127,3 +127,36 @@ export async function updateProjectStatus({
     where id = ${projectId}
   `;
 }
+
+export async function updateProjectDetails({
+  projectId,
+  name,
+  clientName,
+  projectType,
+  scope,
+  measurementStandard
+}: {
+  projectId: string;
+  name: string;
+  clientName: string;
+  projectType: string;
+  scope: string;
+  measurementStandard: MeasurementStandard;
+}) {
+  const sql = getSql();
+
+  const rows = (await sql`
+    update projects
+    set
+      name = ${name},
+      client_name = ${clientName},
+      project_type = ${projectType},
+      scope = ${scope},
+      measurement_standard = ${measurementStandard},
+      updated_at = now()
+    where id = ${projectId}
+    returning *
+  `) as ProjectRow[];
+
+  return rows[0] ?? null;
+}
