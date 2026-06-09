@@ -33,11 +33,57 @@ export async function getProjectsForUser(userId: string) {
       from boq_items
       group by project_id
     ) item_counts on item_counts.project_id = p.id
-    where pm.user_id = ${userId}
+    where pm.user_id = ${userId} and p.deleted_at is null
     order by p.updated_at desc
   `) as ProjectRow[];
 
   return rows;
+}
+
+export async function getDeletedProjectsForUser(userId: string) {
+  const sql = getSql();
+  const rows = (await sql`
+    select p.*, pm.role
+    from projects p
+    join project_members pm on pm.project_id = p.id
+    where pm.user_id = ${userId} and p.deleted_at is not null
+    order by p.deleted_at desc
+  `) as ProjectRow[];
+
+  return rows;
+}
+
+export async function softDeleteProject(projectId: string) {
+  const sql = getSql();
+  await sql`update projects set deleted_at = now(), updated_at = now() where id = ${projectId}`;
+}
+
+export async function restoreProject(projectId: string) {
+  const sql = getSql();
+  await sql`update projects set deleted_at = null, updated_at = now() where id = ${projectId}`;
+}
+
+/**
+ * Permanently delete a project and all project-specific data. Returns the
+ * storage URLs of project files so the caller can delete the blobs.
+ * App-wide previous-BOQ knowledge is NOT touched here.
+ */
+export async function permanentlyDeleteProject(
+  projectId: string
+): Promise<{ storageUrls: string[] }> {
+  const sql = getSql();
+  const fileRows = (await sql`
+    select storage_url from project_files where project_id = ${projectId}
+  `) as Array<{ storage_url: string | null }>;
+  const storageUrls = fileRows
+    .map((r) => r.storage_url)
+    .filter((url): url is string => Boolean(url));
+
+  // ON DELETE CASCADE removes members, files, generations, items, queries,
+  // assumptions, jobs, exports, logs, etc.
+  await sql`delete from projects where id = ${projectId}`;
+
+  return { storageUrls };
 }
 
 export async function createProjectForUser({

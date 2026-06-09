@@ -33,11 +33,132 @@ export type ProjectRow = {
   measurement_standard: MeasurementStandard;
   status: ProjectStatus;
   confidence_threshold: number;
+  deleted_at?: string | null;
   created_at: string;
   updated_at: string;
   role?: ProjectRole;
   file_count?: number;
   item_count?: number;
+};
+
+export type GenerationStatus =
+  | "draft"
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "exported";
+
+export type BoqGenerationRow = {
+  id: string;
+  project_id: string;
+  label: string;
+  measurement_standard: MeasurementStandard;
+  template_id: string | null;
+  status: GenerationStatus;
+  source_file_ids: string[];
+  item_count: number;
+  query_count: number;
+  assumption_count: number;
+  estimated_cost_usd: string | number;
+  created_by: string | null;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AgentLogStatus =
+  | "waiting"
+  | "running"
+  | "completed"
+  | "skipped"
+  | "failed";
+
+export type BoqGenerationAgentLogRow = {
+  id: string;
+  generation_id: string;
+  project_id: string;
+  agent_id: string;
+  agent_label: string;
+  scope: string | null;
+  section_code: string | null;
+  status: AgentLogStatus;
+  progress: number;
+  status_text: string | null;
+  items_count: number;
+  queries_count: number;
+  assumptions_count: number;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BoqGenerationExportRow = {
+  id: string;
+  generation_id: string;
+  project_id: string;
+  file_name: string;
+  storage_url: string | null;
+  format: string;
+  item_count: number;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type AppKnowledgeStatus = "active" | "approved" | "disabled";
+
+export type AppKnowledgeRow = {
+  id: string;
+  agent_id: string;
+  scope: string;
+  measurement_standard: string | null;
+  section_code: string | null;
+  upload_id: string | null;
+  source_file_name: string | null;
+  description_patterns: string | null;
+  item_wording_patterns: string | null;
+  trade_section_structure: string | null;
+  heading_structure: string | null;
+  numbering_style: string | null;
+  unit_usage_patterns: string | null;
+  measurement_standard_usage: string | null;
+  scope_description_patterns: string | null;
+  inclusions: string | null;
+  exclusions: string | null;
+  summary_structure: string | null;
+  collection_structure: string | null;
+  cover_page_style: string | null;
+  excel_formatting_style: string | null;
+  column_structure: string | null;
+  client_company_style: string | null;
+  sample_items: Array<{
+    item_no?: string;
+    description?: string;
+    unit?: string;
+    section?: string;
+  }>;
+  detected_units: string[];
+  raw_analysis: Record<string, unknown>;
+  confidence_score: number;
+  status: AppKnowledgeStatus;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PreviousBoqUploadRow = {
+  id: string;
+  origin_project_id: string | null;
+  file_id: string | null;
+  uploaded_by: string | null;
+  file_name: string;
+  storage_url: string | null;
+  measurement_standard: string | null;
+  status: "uploaded" | "analyzing" | "analyzed" | "failed";
+  created_at: string;
+  updated_at: string;
 };
 
 export type ProjectFileRow = {

@@ -27,6 +27,16 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
   section (headings, descriptions, units; blank quantity/rate/amount columns),
   plus Summary/Collection, Assumptions, Queries (RFI), and an AI Review Notice
   sheet. Structure and summary layout follow the learned previous-BOQ style.
+- App-wide knowledge base: previous BOQs are analysed by discipline scope and
+  stored in `app_knowledge_base` (keyed by agent/scope/standard), reusable across
+  ALL projects and every future generation — not project-bound.
+- Multiple BOQ generations per project: every run is a separate, stored
+  generation. BOQ items, queries, assumptions, agent logs and exports are all
+  separated by `generation_id`; old generations are never overwritten. The
+  Generate screen lists every generation with live per-agent status.
+- Recycle Bin: projects and generations support soft delete (recoverable) and
+  permanent delete (cascades all generation/project data and removes blobs).
+  App-wide previous-BOQ knowledge is preserved on deletion.
 
 ## Configure These Services
 
@@ -44,6 +54,10 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
    - `database/migration_previous_boq_knowledge.sql` (adds the `boq_knowledge`
      table on databases created before previous-BOQ learning; `schema.sql`
      already includes it for fresh installs)
+   - `database/migration_foundation.sql` (app-wide knowledge base, multiple
+     generations with `generation_id` separation, generation-scoped exports and
+     agent logs, and Recycle Bin soft-delete; `schema.sql` already includes it
+     for fresh installs)
    - `database/seed_template_profiles.sql`
    - `database/seed_rules.sql`
 5. Create/connect a Vercel Blob store and confirm `BLOB_READ_WRITE_TOKEN` is available in Vercel.

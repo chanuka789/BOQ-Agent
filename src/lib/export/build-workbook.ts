@@ -29,6 +29,7 @@ type ExportData = {
   assumptions: BoqAssumptionRow[];
   queries: BoqQueryRow[];
   knowledge: BoqKnowledgeRow[];
+  generationLabel?: string;
 };
 
 function groupBySection(items: BoqItemRow[]) {
@@ -44,12 +45,12 @@ function groupBySection(items: BoqItemRow[]) {
 }
 
 export async function buildBoqWorkbook(data: ExportData): Promise<ExcelJS.Buffer> {
-  const { project, items, assumptions, queries, knowledge } = data;
+  const { project, items, assumptions, queries, knowledge, generationLabel } = data;
   const wb = new ExcelJS.Workbook();
   wb.creator = "AI BOQ Drafting Agent";
   wb.created = new Date();
 
-  buildBoqSheet(wb, project, items);
+  buildBoqSheet(wb, project, items, generationLabel);
   buildSummarySheet(wb, project, items, knowledge);
   buildAssumptionsSheet(wb, assumptions);
   buildQueriesSheet(wb, queries);
@@ -61,7 +62,8 @@ export async function buildBoqWorkbook(data: ExportData): Promise<ExcelJS.Buffer
 function buildBoqSheet(
   wb: ExcelJS.Workbook,
   project: ProjectRow,
-  items: BoqItemRow[]
+  items: BoqItemRow[],
+  generationLabel?: string
 ) {
   const ws = wb.addWorksheet("BOQ", {
     views: [{ state: "frozen", ySplit: 6 }]
@@ -79,7 +81,9 @@ function buildBoqSheet(
   // Title block
   ws.mergeCells("A1:F1");
   const titleCell = ws.getCell("A1");
-  titleCell.value = `${project.name} — Bill of Quantities (Draft)`;
+  titleCell.value = `${project.name} — Bill of Quantities (Draft)${
+    generationLabel ? ` · ${generationLabel}` : ""
+  }`;
   titleCell.font = { bold: true, size: 14, color: { argb: PRIMARY } };
 
   ws.mergeCells("A2:F2");

@@ -5,6 +5,7 @@ import { extractFileText, getVisionPayload, VisionPayload } from "@/lib/document
 import { insertBoqItemsBulk, insertBoqQueriesBulk, insertBoqAssumptionsBulk } from "@/lib/db/boq";
 import { getProjectFiles } from "@/lib/db/files";
 import { getProjectKnowledge, buildKnowledgePromptNotes } from "@/lib/db/knowledge";
+import { getAppKnowledgeNotesForProject } from "@/lib/db/app-knowledge";
 import { getRules } from "@/lib/db/rules";
 import { getProjectTemplates } from "@/lib/db/templates";
 import { buildBoqGeneratorSystemPrompt } from "@/prompts/boq-generator";
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { projectId, trade, scope, fileIds, jobId } = await req.json();
+    const { projectId, trade, scope, fileIds, jobId, generationId } = await req.json();
 
     if (!projectId || !trade) {
       return NextResponse.json({ error: "Missing projectId or trade" }, { status: 400 });
@@ -93,9 +94,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4b. Load the style learned from this firm's previous BOQs.
-    const knowledgeRows = await getProjectKnowledge(projectId);
-    const knowledgeNotes = buildKnowledgePromptNotes(knowledgeRows);
+    // 4b. Load the style learned from previous BOQs — both this project's own
+    //     knowledge and the app-wide, scope-specific knowledge base.
+    const [projectKnowledgeRows, appKnowledgeNotes] = await Promise.all([
+      getProjectKnowledge(projectId),
+      getAppKnowledgeNotesForProject({
+        projectScope: scope ?? project.scope,
+        measurementStandard: project.measurement_standard
+      })
+    ]);
+    const knowledgeNotes = [
+      ...appKnowledgeNotes,
+      ...buildKnowledgePromptNotes(projectKnowledgeRows)
+    ];
 
     // 5. Build template style notes
     const templates = await getProjectTemplates(projectId);
@@ -201,20 +212,20 @@ Return strict JSON only.
       review_status: (item.review_status ?? "draft") as any
     }));
 
-    await insertBoqItemsBulk(projectId, cleanedItems);
+    await insertBoqItemsBulk(projectId, cleanedItems, generationId);
 
     const cleanedQueries = queries.map((q) => ({
       issue: q.issue,
       clarification_needed: q.clarification_needed,
       source_reference: q.source_reference ?? null
     }));
-    await insertBoqQueriesBulk(projectId, cleanedQueries);
+    await insertBoqQueriesBulk(projectId, cleanedQueries, generationId);
 
     const cleanedAssumptions = assumptions.map((a) => ({
       assumption: a.assumption,
       source_reference: a.source_reference ?? null
     }));
-    await insertBoqAssumptionsBulk(projectId, cleanedAssumptions);
+    await insertBoqAssumptionsBulk(projectId, cleanedAssumptions, generationId);
 
     // 9. Save AI Usage
     const promptTokens = result.usage?.promptTokens ?? 0;

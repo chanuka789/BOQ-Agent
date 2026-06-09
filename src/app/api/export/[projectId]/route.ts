@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { getBoqAssumptions, getBoqItems, getBoqQueries } from "@/lib/db/boq";
 import { getSql } from "@/lib/db/client";
+import {
+  getGeneration,
+  getLatestGeneration,
+  recordGenerationExport,
+  updateGenerationStatus
+} from "@/lib/db/generations";
 import { getProjectKnowledge } from "@/lib/db/knowledge";
 import { assertProjectAccess } from "@/lib/db/projects";
 import { requireCurrentAppUser } from "@/lib/db/users";
@@ -12,10 +18,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await params;
+  const { searchParams } = new URL(request.url);
+  const generationParam = searchParams.get("generation");
 
   try {
     const user = await requireCurrentAppUser();
@@ -30,10 +38,23 @@ export async function GET(
       return NextResponse.json({ error: "Project not found." }, { status: 404 });
     }
 
+    // Resolve the generation: explicit ?generation=, else the latest one.
+    const generation = generationParam
+      ? await getGeneration(generationParam)
+      : await getLatestGeneration(projectId);
+    const generationId = generation?.id ?? null;
+
+    if (generation && generation.project_id !== projectId) {
+      return NextResponse.json(
+        { error: "Generation does not belong to this project." },
+        { status: 400 }
+      );
+    }
+
     const [items, assumptions, queries, knowledge] = await Promise.all([
-      getBoqItems(projectId),
-      getBoqAssumptions(projectId),
-      getBoqQueries(projectId),
+      getBoqItems(projectId, generationId),
+      getBoqAssumptions(projectId, generationId),
+      getBoqQueries(projectId, generationId),
       getProjectKnowledge(projectId)
     ]);
 
@@ -42,23 +63,34 @@ export async function GET(
       items,
       assumptions,
       queries,
-      knowledge
+      knowledge,
+      generationLabel: generation?.label
     });
+
+    const safeName = project.name.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");
+    const genSuffix = generation
+      ? `-${generation.label.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "")}`
+      : "";
+    const fileName = `${safeName || "boq"}${genSuffix}-draft.xlsx`;
+
+    // Record the export against the generation so it can be re-downloaded later.
+    if (generationId) {
+      await recordGenerationExport({
+        generationId,
+        projectId,
+        fileName,
+        itemCount: items.length,
+        createdBy: user.id
+      }).catch(() => {});
+      await updateGenerationStatus(generationId, "exported").catch(() => {});
+    }
 
     await addActivityLog({
       projectId,
       userId: user.id,
       action: "boq.exported",
-      details: { itemCount: items.length }
+      details: { itemCount: items.length, generationId }
     }).catch(() => {});
-
-    await sql`
-      update projects set status = 'exported', updated_at = now()
-      where id = ${projectId} and status = 'ready_for_review'
-    `.catch(() => {});
-
-    const safeName = project.name.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");
-    const fileName = `${safeName || "boq"}-draft.xlsx`;
 
     return new NextResponse(buffer as ArrayBuffer, {
       status: 200,
