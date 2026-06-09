@@ -36,7 +36,6 @@ const projectNav = [
   { label: "Upload documents", icon: UploadCloud, segment: "upload" },
   { label: "Previous BOQs", icon: Library, segment: "previous-boqs" },
   { label: "Document review", icon: FileSearch, segment: "document-review" },
-  { label: "BOQ rule library", icon: BookMarked, segment: "rules" },
   { label: "Generate BOQ", icon: Sparkles, segment: "generate" },
   { label: "BOQ review", icon: Table2, segment: "boq-review" },
   { label: "Query register", icon: FileQuestion, segment: "queries" },
@@ -110,6 +109,13 @@ export function AppShell({ children, userName, userEmail }: AppShellProps) {
             <div className="hidden px-3 pb-2 pt-5 text-[11px] font-extrabold uppercase text-white/55 lg:block">
               Workspace
             </div>
+            <SidebarLink
+              href="/rules"
+              active={pathname === "/rules"}
+              icon={BookMarked}
+            >
+              BOQ rule library
+            </SidebarLink>
             <SidebarLink
               href="/knowledge-base"
               active={pathname.startsWith("/knowledge-base")}

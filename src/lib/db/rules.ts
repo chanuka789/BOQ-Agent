@@ -54,6 +54,7 @@ export async function getRules({
 
 export async function createRule({
   measurementStandard,
+  sectionCode,
   scope,
   trade,
   itemType,
@@ -63,6 +64,7 @@ export async function createRule({
   exclusions
 }: {
   measurementStandard: MeasurementStandard;
+  sectionCode?: string | null;
   scope: string;
   trade: string;
   itemType: string;
@@ -75,6 +77,7 @@ export async function createRule({
   const rows = (await sql`
     insert into boq_rules (
       measurement_standard,
+      section_code,
       scope,
       trade,
       item_type,
@@ -85,6 +88,7 @@ export async function createRule({
     )
     values (
       ${measurementStandard},
+      ${sectionCode ?? null},
       ${scope},
       ${trade},
       ${itemType},
@@ -93,6 +97,13 @@ export async function createRule({
       ${inclusions ?? null},
       ${exclusions ?? null}
     )
+    on conflict (measurement_standard, scope, trade, item_type, unit)
+    do update set
+      section_code = excluded.section_code,
+      description_rule = excluded.description_rule,
+      inclusions = excluded.inclusions,
+      exclusions = excluded.exclusions,
+      updated_at = now()
     returning *
   `) as BoqRuleRow[];
 

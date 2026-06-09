@@ -246,6 +246,7 @@ export type BoqKnowledgeRow = {
 export type BoqRuleRow = {
   id: string;
   measurement_standard: MeasurementStandard;
+  section_code: string | null;
   scope: string;
   trade: string;
   item_type: string;
