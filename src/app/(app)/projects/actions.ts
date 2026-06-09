@@ -16,7 +16,8 @@ const projectSchema = z.object({
 
 export async function createProjectAction(formData: FormData) {
   const user = await requireCurrentAppUser();
-  const parsed = projectSchema.parse({
+
+  const parseResult = projectSchema.safeParse({
     name: formData.get("name"),
     clientName: formData.get("clientName"),
     projectType: formData.get("projectType"),
@@ -24,12 +25,22 @@ export async function createProjectAction(formData: FormData) {
     measurementStandard: formData.get("measurementStandard")
   });
 
+  if (!parseResult.success) {
+    const message = parseResult.error.errors.map((e) => e.message).join(", ");
+    redirect(`/projects/new?error=${encodeURIComponent(message)}`);
+  }
+
+  const parsed = parseResult.data;
   let project;
   try {
     project = await createProjectForUser({
       user,
       ...parsed
     });
+
+    if (!project) {
+      throw new Error("Project was not created — database returned no row.");
+    }
 
     await addActivityLog({
       projectId: project.id,
@@ -46,5 +57,5 @@ export async function createProjectAction(formData: FormData) {
     redirect(`/projects/new?error=${encodeURIComponent(message)}`);
   }
 
-  redirect(`/projects/${project.id}/upload`);
+  redirect(`/projects/${project!.id}/upload`);
 }

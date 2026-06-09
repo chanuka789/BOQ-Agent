@@ -20,7 +20,7 @@ const updateProjectSchema = z.object({
 export async function updateProjectAction(formData: FormData) {
   const user = await requireCurrentAppUser();
 
-  const parsed = updateProjectSchema.parse({
+  const parseResult = updateProjectSchema.safeParse({
     projectId: formData.get("projectId"),
     name: formData.get("name"),
     clientName: formData.get("clientName"),
@@ -28,6 +28,13 @@ export async function updateProjectAction(formData: FormData) {
     scope: formData.get("scope"),
     measurementStandard: formData.get("measurementStandard")
   });
+
+  if (!parseResult.success) {
+    const message = parseResult.error.errors.map((e) => e.message).join(", ");
+    redirect(`/projects/${formData.get("projectId")}/settings?error=${encodeURIComponent(message)}`);
+  }
+
+  const parsed = parseResult.data;
 
   const membership = await assertProjectAccess(parsed.projectId, user.id);
   if (membership.role !== "owner" && membership.role !== "editor") {
