@@ -5,7 +5,6 @@ import { estimateCost, isQualityMode, type QualityMode } from "@/lib/ai/model-co
 import { extractFileText, getVisionPayload, VisionPayload } from "@/lib/documents/extractor";
 import { insertBoqItemsBulk, insertBoqQueriesBulk, insertBoqAssumptionsBulk } from "@/lib/db/boq";
 import { getProjectFiles } from "@/lib/db/files";
-import { getProjectKnowledge, buildKnowledgePromptNotes } from "@/lib/db/knowledge";
 import { getAppKnowledgeNotesForProject } from "@/lib/db/app-knowledge";
 import { getRules } from "@/lib/db/rules";
 import { getProjectTemplates } from "@/lib/db/templates";
@@ -110,19 +109,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4b. Load the style learned from previous BOQs — both this project's own
-    //     knowledge and the app-wide, scope-specific knowledge base.
-    const [projectKnowledgeRows, appKnowledgeNotes] = await Promise.all([
-      getProjectKnowledge(projectId),
-      getAppKnowledgeNotesForProject({
-        projectScope: scope ?? project.scope,
-        measurementStandard: project.measurement_standard
-      })
-    ]);
-    const knowledgeNotes = [
-      ...appKnowledgeNotes,
-      ...buildKnowledgePromptNotes(projectKnowledgeRows)
-    ];
+    // 4b. Load the style learned from previous BOQs — the app-wide,
+    //     scope-specific knowledge base (trained from the Knowledge base page).
+    const knowledgeNotes = await getAppKnowledgeNotesForProject({
+      projectScope: scope ?? project.scope,
+      measurementStandard: project.measurement_standard
+    });
 
     // 5. Build template style notes
     const templates = await getProjectTemplates(projectId);
