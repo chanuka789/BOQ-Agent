@@ -15,7 +15,7 @@ export async function getBoqItems(projectId: string, generationId?: string | nul
     from boq_items
     where project_id = ${projectId}
       and (${generationId ?? null}::uuid is null or generation_id = ${generationId ?? null})
-    order by section, trade, item_no nulls last, created_at
+    order by section, position
   `) as BoqItemRow[];
 
   return rows;

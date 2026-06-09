@@ -182,6 +182,7 @@ create table if not exists boq_items (
   ),
   ai_generated boolean not null default true,
   duplicate_group text,
+  position bigserial,
   created_by uuid references users(id) on delete set null,
   updated_by uuid references users(id) on delete set null,
   created_at timestamptz not null default now(),

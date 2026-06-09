@@ -31,30 +31,59 @@ NON-NEGOTIABLE RULES
   anything missing or conflicting.
 
 ===========================================================
-DESCRIPTION WRITING PATTERN (default — override with learned style below)
+MANDATORY ITEM STRUCTURE — "description block, then lettered items below"
 ===========================================================
-• PREAMBLE items (item_type = "preamble") use a full sentence form, e.g.:
-  "Supply and installation of [main work type] including [component 1],
-   [component 2] and all necessary accessories; complete, all in accordance with
-   the Drawings and Specifications."
-  Adapt the verb to the trade: "Supply, fabricate and fix" (concrete/steel),
-  "Supply and apply" (surface finishes), "Supply and install" (fixtures),
-  "Demolish and remove" (removals).
-• MEASURED sub-items (item_type = "measured") use concise noun-phrase
-  descriptions with size/type/reference, e.g. "Core walls, 300mm thick",
-  "Porcelain tile (600 x 600 x 9mm), Ref: TL-05", "1200 x 2100mm, Type D3".
-  Use "Ditto" for the same item at a different size.
-• SUB-HEADINGS (item_type = "sub_heading") are short labels for location, scope
-  or fire rating, e.g. "Floor Finishes", "60 Minute Fire Rating", "FOH" / "BOH".
+This is the most important rule. EVERY work group MUST be produced as three
+tiers, in this order:
+
+  1) HEADING        (item_type = "heading")      — a short work title.
+                      NO item letter, NO unit.
+                      e.g. "Internal Block Walls", "Cast-In-Place Concrete Walls",
+                           "Porcelain Floor Tiling".
+
+  2) DESCRIPTION    (item_type = "description")   — the full descriptive paragraph
+                      written once for the whole group. NO item letter, NO unit.
+                      Form: "Supply and install [work] including [components];
+                      complete, all in accordance with the Drawings and
+                      Specifications." Adapt the verb to the trade
+                      ("Supply, fabricate and fix" concrete/steel; "Supply and
+                      apply" finishes; "Supply and install" fixtures; "Demolish
+                      and remove" removals).
+
+  3) MEASURED ITEMS (item_type = "measured")      — one row per measured variant,
+                      listed BELOW the description. EACH measured item carries the
+                      LETTER (A, B, C, D … skip I and O) AND the UNIT. The text is a
+                      concise noun phrase with size/type/reference, e.g.
+                      "200 mm cast-in-place concrete; wall type L",
+                      "100 mm concrete unit masonry; Type A",
+                      "Porcelain tile 600 x 600 x 9mm, Ref: TL-05".
+                      Use "Ditto, …" for the same item at a different size.
+
+ABSOLUTE RULES ABOUT LETTERS AND UNITS:
+• The item LETTER (A, B, C, D…) and the UNIT belong ONLY to "measured" items.
+• "heading" and "description" rows MUST have item_no = "-" and unit = "-".
+• NEVER put a letter or a unit on a heading or a description.
+• A description with no measured items below it is incomplete — always produce at
+  least one measured item under each description (raise a query if the variants
+  are unknown, but still output one measured skeleton item).
+
+WORKED EXAMPLE (follow this shape exactly):
+  { "item_no": "-", "item_type": "heading",     "description": "Internal Block Walls", "unit": "-" }
+  { "item_no": "-", "item_type": "description", "description": "Supply and install concrete blockwork including cement mortar, solid jambs at openings, lintels, embedded expansion metals, galvanized steel anchors, wall ties, metal lath reinforcement, stiffeners and jointing; complete, all in accordance with the Drawings and Specifications.", "unit": "-" }
+  { "item_no": "A", "item_type": "measured",    "description": "100 mm concrete unit masonry; Type A", "unit": "m2" }
+  { "item_no": "B", "item_type": "measured",    "description": "150 mm concrete unit masonry; Type B", "unit": "m2" }
+  { "item_no": "C", "item_type": "measured",    "description": "200 mm concrete unit masonry; Type C", "unit": "m2" }
 
 ===========================================================
 STRUCTURE & NUMBERING (default — override with learned style below)
 ===========================================================
-• Group items by trade SECTION (e.g. "DIVISION 9 - FINISHES") in the section
-  field; the specific trade goes in the trade field.
-• Assign sequential LETTER codes (A B C D E F G H J K … skipping I and O) to
-  measured items, resetting at the start of each new section.
-• Sub-headings and preambles use item_no = "-" and unit = "-".
+• Group items by trade SECTION (e.g. "DIVISION 04 - MASONRY WORKS") in the
+  section field; the specific trade goes in the trade field.
+• item_type "sub_heading" is an optional location/scope label above a heading
+  (e.g. "FOH" / "BOH", "60 Minute Fire Rating") — NO item letter, NO unit.
+• LETTER codes (A B C D E F G H J K … skip I and O) are assigned ONLY to measured
+  items, and restart at "A" under each new HEADING/description block.
+• Headings, descriptions and sub-headings use item_no = "-" and unit = "-".
 `;
 
 const standardGuidance: Record<string, string> = {
@@ -117,7 +146,7 @@ OUTPUT FORMAT — strict JSON, no text outside the object
       "item_no": "A",
       "section": "DIVISION 9 - FINISHES",
       "trade": "Floor Finishes",
-      "item_type": "preamble | measured | sub_heading",
+      "item_type": "sub_heading | heading | description | measured",
       "description": "string",
       "unit": "m2",
       "source_reference": "string",
@@ -134,8 +163,10 @@ OUTPUT FORMAT — strict JSON, no text outside the object
 }
 
 • item_type "sub_heading": item_no = "-", unit = "-", confidence_score = 1.
-• item_type "preamble":    item_no = "-", unit = "-", confidence_score = 1.
-• item_type "measured":    assign the next letter code, give a unit and confidence.
+• item_type "heading":     item_no = "-", unit = "-", confidence_score = 1.
+• item_type "description": item_no = "-", unit = "-", confidence_score = 1.
+• item_type "measured":    assign the next letter code (A, B, C…) AND a unit.
+• Order rows as: [sub_heading?] -> heading -> description -> measured A, B, C…
 `;
 
 /**
