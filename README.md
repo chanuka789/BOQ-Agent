@@ -62,8 +62,11 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
   approve, disable/enable, edit (all learned aspects), and delete. Disabled
   records are excluded from generation; approved records are preferred.
 - App-wide previous-BOQ training: a dedicated `/knowledge-base/train` page
-  uploads past bills independently of any project. Each is analysed by discipline
-  scope and stored app-wide, reused by the agents on every project.
+  uploads past bills independently of any project. Each is analysed (synchronously
+  and reliably, client-triggered) by discipline scope and stored app-wide, reused
+  by the agents on every project. Approving a learned record also synthesises
+  matching rules into the app-wide BOQ rule library, so the Knowledge base and
+  rule library stay connected and both feed the section agents.
 - Multi-model AI via OpenRouter: a central model router selects the model per
   task (classification, scope detection, previous-BOQ analysis, knowledge
   extraction, BOQ generation, unit checking, assumptions, queries, section-agent
@@ -101,6 +104,8 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
      `schema.sql` for fresh installs)
    - `database/migration_rule_sections.sql` (adds `section_code` to the app-wide
      rule library; also in `schema.sql` for fresh installs)
+   - `database/migration_knowledge_rules.sql` (adds `error_message` to
+     `previous_boq_uploads`; also in `schema.sql` for fresh installs)
    - `database/seed_template_profiles.sql`
    - `database/seed_rules.sql`
 5. Create/connect a Vercel Blob store and confirm `BLOB_READ_WRITE_TOKEN` is available in Vercel.

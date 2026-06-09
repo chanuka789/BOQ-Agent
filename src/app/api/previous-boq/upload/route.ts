@@ -1,10 +1,7 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
-import { after } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getSql } from "@/lib/db/client";
 import { getCurrentAppUser } from "@/lib/db/users";
-import { analyzePreviousBoqUpload, getPreviousBoqUploadById } from "@/lib/knowledge/analyze-app-upload";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,38 +62,10 @@ export async function POST(request: Request) {
           })
         };
       },
-      onUploadCompleted: async ({ blob, tokenPayload }) => {
-        try {
-          const payload = JSON.parse(tokenPayload ?? "{}") as {
-            userId?: string;
-            fileName?: string;
-            measurementStandard?: string | null;
-          };
-          const sql = getSql();
-          const rows = (await sql`
-            insert into previous_boq_uploads (
-              uploaded_by, file_name, storage_url, measurement_standard, status
-            )
-            values (
-              ${payload.userId ?? null},
-              ${payload.fileName ?? blob.pathname.split("/").pop() ?? blob.pathname},
-              ${blob.url},
-              ${payload.measurementStandard ?? null},
-              'uploaded'
-            )
-            returning id
-          `) as Array<{ id: string }>;
-
-          const uploadId = rows[0]?.id;
-          if (uploadId) {
-            after(async () => {
-              const upload = await getPreviousBoqUploadById(uploadId);
-              if (upload) await analyzePreviousBoqUpload(upload);
-            });
-          }
-        } catch (error) {
-          console.error("App-wide previous BOQ save failed:", error);
-        }
+      // The DB row + analysis are created by the client via registerUploadAction
+      // once the upload resolves, so this callback only needs to acknowledge.
+      onUploadCompleted: async ({ blob }) => {
+        console.info("Previous BOQ blob stored:", blob.pathname);
       }
     });
 

@@ -6,9 +6,11 @@ import { z } from "zod";
 import { resolveScope } from "@/lib/agents/catalog";
 import {
   deleteAppKnowledge,
+  getAppKnowledgeById,
   setAppKnowledgeStatus,
   updateAppKnowledge
 } from "@/lib/db/app-knowledge";
+import { synthesizeAndStoreRules } from "@/lib/knowledge/synthesize-rules";
 import { requireCurrentAppUser } from "@/lib/db/users";
 
 const idSchema = z.string().uuid();
@@ -22,7 +24,19 @@ export async function approveKnowledgeAction(formData: FormData) {
   await requireCurrentAppUser();
   const id = idSchema.parse(formData.get("id"));
   await setAppKnowledgeStatus(id, "approved");
+
+  // Approving learned knowledge seeds reusable rules into the BOQ rule library.
+  const row = await getAppKnowledgeById(id);
+  if (row) {
+    try {
+      await synthesizeAndStoreRules(row);
+    } catch (error) {
+      console.error("Failed to synthesise rules from knowledge:", error);
+    }
+  }
+
   revalidatePath("/knowledge-base");
+  revalidatePath("/rules");
 }
 
 export async function disableKnowledgeAction(formData: FormData) {

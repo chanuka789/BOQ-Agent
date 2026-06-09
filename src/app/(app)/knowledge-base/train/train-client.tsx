@@ -5,6 +5,7 @@ import { upload } from "@vercel/blob/client";
 import { UploadCloud } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { registerUploadAction } from "./actions";
 
 type UploadState = {
   id: string;
@@ -27,13 +28,14 @@ export function TrainClient() {
       const id = crypto.randomUUID();
       setStates((s) => [...s, { id, name: file.name, progress: 0, status: "uploading" }]);
       try {
-        await upload(`previous-boqs/${file.name}`, file, {
+        const blob = await upload(`previous-boqs/${file.name}`, file, {
           access: "public",
           handleUploadUrl: "/api/previous-boq/upload",
           clientPayload: JSON.stringify({ fileName: file.name, measurementStandard: standard || undefined }),
           onUploadProgress: ({ percentage }) =>
             setStates((s) => s.map((x) => (x.id === id ? { ...x, progress: percentage } : x)))
         });
+
         setStates((s) =>
           s.map((x) =>
             x.id === id
@@ -41,7 +43,26 @@ export function TrainClient() {
               : x
           )
         );
-        setTimeout(() => router.refresh(), 1500);
+
+        // Register + analyse synchronously (reliable, no webhook dependency).
+        const result = await registerUploadAction({
+          url: blob.url,
+          fileName: file.name,
+          measurementStandard: standard || undefined
+        });
+        setStates((s) =>
+          s.map((x) =>
+            x.id === id
+              ? {
+                  ...x,
+                  message: result.ok
+                    ? "Analysed and added to the knowledge base."
+                    : `Uploaded, but analysis errored: ${result.error ?? "unknown"}. Use Re-analyse.`
+                }
+              : x
+          )
+        );
+        router.refresh();
       } catch (error) {
         setStates((s) =>
           s.map((x) =>

@@ -11,6 +11,8 @@ import { formatDate } from "@/lib/format";
 import { TrainClient } from "./train-client";
 import { deleteUploadAction, reanalyzeUploadAction } from "./actions";
 
+export const maxDuration = 60;
+
 export default async function TrainPage() {
   try {
     await requireCurrentAppUser();
@@ -63,6 +65,11 @@ export default async function TrainPage() {
                       </div>
                       <UploadStatusBadge status={u.status} />
                     </div>
+                    {u.status === "failed" && u.error_message ? (
+                      <p className="mt-2 rounded-md bg-[var(--danger-soft,#fdeaea)] px-3 py-2 text-xs text-[var(--danger)]">
+                        {u.error_message}
+                      </p>
+                    ) : null}
                     <div className="mt-3 flex gap-2">
                       <form action={reanalyzeUploadAction}>
                         <input type="hidden" name="uploadId" value={u.id} />
