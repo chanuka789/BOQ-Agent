@@ -21,6 +21,7 @@ import type { ProjectRow, ReviewStatus } from "@/lib/db/types";
 
 type GenerationResult = {
   boq_items?: Array<{
+    item_no?: string;
     section: string;
     trade: string;
     item_type: string;
@@ -192,7 +193,14 @@ export async function runBoqGeneration(projectId: string, jobId: string): Promis
 
     for (const item of boqItems) {
       await insertBoqItem(projectId, {
-        ...item,
+        item_no: item.item_no ?? null,
+        section: item.section,
+        trade: item.trade,
+        item_type: item.item_type,
+        description: item.description,
+        unit: item.unit === "-" ? "" : item.unit,
+        source_reference: item.source_reference ?? null,
+        confidence_score: item.confidence_score,
         review_status: (item.review_status ?? "draft") as ReviewStatus
       });
     }

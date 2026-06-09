@@ -42,7 +42,7 @@ values (
       "amount": 5
     }
   }'::jsonb,
-  'Use concise trade-specific descriptions matching the supplied bills, e.g. "50mm Blinding", "200mm insulated cavity wall with aluminum perforated steel, Ref; P10", "1100 x 2250mm, Type D3", and "Allow for ... complete as per Drawings and Specifications." Use template units such as nr, item, m, m2, m3, kg. Never generate quantities, rates, or amounts.'
+  'U-View Jeddah Tower POMI/CSI bill format. Column layout: ITEM (A) | DESCRIPTION (B) | QTY. (C) | UNIT (D) | RATE (E) | AMOUNT (F). Arial 11pt throughout. Item codes: A B C D E F G H J K L M N P Q R S (skip I and O). Each division sheet uses structure: project header rows → column headers (row 5) → division heading → preamble note → spec section heading (e.g. "03 3000 : CAST IN PLACE CONCRETE") → POMI section reference (e.g. "POMI Section C2") → sub-headings (SUBSTRUCTURE / SUPERSTRUCTURE / FOH / BOH / Floor Finishes / Wall Finishes / Ceiling Finishes) → measured items. Preamble description pattern: "Supply and installation of [work type] including [components] and all necessary accessories; complete, all in accordance with the Drawings and Specifications." Measured sub-items: concise noun phrases, use "Ditto" for same item type at different size (e.g. "Core walls, 300mm thick" / "Ditto, 500mm thick"). End each page section with "CARRIED TO COLLECTION". Collection page lists all CTC subtotals and closes with "CARRIED TO BILL SUMMARY". Bill Summary sheet (SUM) columns: ITEM | REFERENCE | DESCRIPTION | PAGE NO. | AMOUNT. Units: m3 (concrete), m2 (finishes/formwork/walls), m (linear), t (reinforcement), nr (doors/windows/fixtures), kg (steelwork), item (lump sum). Never generate quantities, rates, or amounts.'
 )
 on conflict (name)
 do update set

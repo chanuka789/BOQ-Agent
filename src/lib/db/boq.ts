@@ -221,6 +221,7 @@ export async function updateAgentJob(
 export async function insertBoqItem(
   projectId: string,
   item: {
+    item_no?: string | null;
     section: string;
     trade: string;
     item_type: string;
@@ -234,11 +235,12 @@ export async function insertBoqItem(
   const sql = getSql();
   await sql`
     insert into boq_items (
-      project_id, section, trade, item_type, description, unit,
+      project_id, item_no, section, trade, item_type, description, unit,
       source_reference, confidence_score, review_status, ai_generated
     )
     values (
       ${projectId},
+      ${item.item_no ?? null},
       ${item.section},
       ${item.trade},
       ${item.item_type},
