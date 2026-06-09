@@ -4,6 +4,7 @@ import type {
   BoqAssumptionRow,
   BoqItemRow,
   BoqQueryRow,
+  JobStatus,
   ReviewStatus
 } from "@/lib/db/types";
 
@@ -183,12 +184,92 @@ export async function createGenerationJob(projectId: string) {
       'boq_generation',
       'queued',
       0,
-      'Waiting for background worker',
-      'Connect Inngest in production to process this queued generation job.',
+      'Queued — starting shortly',
+      null,
       0
     )
     returning *
   `) as AgentJobRow[];
 
   return rows[0];
+}
+
+export async function updateAgentJob(
+  jobId: string,
+  fields: {
+    status: JobStatus;
+    currentStep: string;
+    progress: number;
+    message?: string | null;
+    estimatedCostUsd?: number;
+  }
+) {
+  const sql = getSql();
+  await sql`
+    update agent_jobs
+    set
+      status = ${fields.status},
+      current_step = ${fields.currentStep},
+      progress = ${fields.progress},
+      message = ${fields.message ?? null},
+      estimated_cost_usd = ${fields.estimatedCostUsd != null ? fields.estimatedCostUsd.toFixed(6) : null},
+      updated_at = now()
+    where id = ${jobId}
+  `;
+}
+
+export async function insertBoqItem(
+  projectId: string,
+  item: {
+    section: string;
+    trade: string;
+    item_type: string;
+    description: string;
+    unit: string;
+    source_reference?: string | null;
+    confidence_score?: number;
+    review_status?: ReviewStatus;
+  }
+) {
+  const sql = getSql();
+  await sql`
+    insert into boq_items (
+      project_id, section, trade, item_type, description, unit,
+      source_reference, confidence_score, review_status, ai_generated
+    )
+    values (
+      ${projectId},
+      ${item.section},
+      ${item.trade},
+      ${item.item_type},
+      ${item.description},
+      ${item.unit},
+      ${item.source_reference ?? null},
+      ${item.confidence_score ?? 0.8},
+      ${item.review_status ?? "draft"},
+      true
+    )
+  `;
+}
+
+export async function insertBoqQuery(
+  projectId: string,
+  query: { issue: string; clarification_needed: string; source_reference?: string | null }
+) {
+  const sql = getSql();
+  await sql`
+    insert into boq_queries (project_id, issue, clarification_needed, source_reference, status)
+    values (${projectId}, ${query.issue}, ${query.clarification_needed}, ${query.source_reference ?? null}, 'open')
+  `;
+}
+
+export async function insertBoqAssumption(
+  projectId: string,
+  assumption: { assumption: string; source_reference?: string | null }
+) {
+  const sql = getSql();
+  await sql`
+    insert into boq_assumptions (project_id, assumption, source_reference)
+    values (${projectId}, ${assumption.assumption}, ${assumption.source_reference ?? null})
+  `;
 }
