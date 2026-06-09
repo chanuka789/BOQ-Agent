@@ -126,9 +126,13 @@ export async function runBoqGeneration(projectId: string, jobId: string): Promis
       sourceChunks.push(`=== ${label} ===\n${text}`);
     }
 
-    if (sourceChunks.length === 0) {
+    const noSourceDocs = sourceChunks.length === 0;
+    if (noSourceDocs) {
       sourceChunks.push(
-        `Project: ${project.name}\nType: ${project.project_type}\nScope: ${project.scope}\nStandard: ${project.measurement_standard}\n\nNo source documents available. Generate a representative BOQ skeleton based on the project type, scope, and the provided rules.`
+        `Project: ${project.name}\nType: ${project.project_type}\nScope: ${project.scope}\nStandard: ${project.measurement_standard}\n\n` +
+          `No source documents have been uploaded yet. You MUST still generate a representative skeleton BOQ for this project type and scope. ` +
+          `Set review_status to "needs_review" on every item to flag them for QS review. ` +
+          `Do NOT respond with only queries — produce concrete BOQ items first, then add queries only for specific ambiguities you cannot resolve from the project metadata.`
       );
     }
 

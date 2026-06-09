@@ -31,13 +31,23 @@ export default async function BoqReviewPage({
         <ReviewBanner />
 
         {items.length === 0 ? (
-          <EmptyState
-            icon={Table2}
-            title="No BOQ items yet"
-            description="Run generation after uploading source documents and templates, then review draft descriptions and units here."
-            actionHref={`/projects/${projectId}/generate`}
-            actionLabel="Generate BOQ"
-          />
+          queries.length > 0 || assumptions.length > 0 ? (
+            <EmptyState
+              icon={Table2}
+              title="No BOQ items generated"
+              description={`The last generation run produced ${queries.length} quer${queries.length === 1 ? "y" : "ies"} and ${assumptions.length} assumption${assumptions.length === 1 ? "" : "s"} but no BOQ items — usually because source documents are missing or ambiguous. Review and resolve the queries, upload source documents, then run generation again.`}
+              actionHref={`/projects/${projectId}/queries`}
+              actionLabel="Review queries"
+            />
+          ) : (
+            <EmptyState
+              icon={Table2}
+              title="No BOQ items yet"
+              description="Run generation after uploading source documents and templates, then review draft descriptions and units here."
+              actionHref={`/projects/${projectId}/generate`}
+              actionLabel="Generate BOQ"
+            />
+          )
         ) : (
           <BoqReviewClient
             projectId={projectId}
