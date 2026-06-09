@@ -57,6 +57,20 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
   learned records by discipline scope, with filters and per-record actions to
   approve, disable/enable, edit (all learned aspects), and delete. Disabled
   records are excluded from generation; approved records are preferred.
+- App-wide previous-BOQ training: a dedicated `/knowledge-base/train` page
+  uploads past bills independently of any project. Each is analysed by discipline
+  scope and stored app-wide, reused by the agents on every project.
+- Multi-model AI via OpenRouter: a central model router selects the model per
+  task (classification, scope detection, previous-BOQ analysis, knowledge
+  extraction, BOQ generation, unit checking, assumptions, queries, section-agent
+  processing, final QA, export prep, testing) and quality mode (Economy /
+  Balanced / Premium, chosen per generation). Roles: GLM 4.7 Flash (bulk),
+  GLM 4.5 Air Free (testing), Gemini 2.5 Flash-Lite (main cheap BOQ model),
+  MiniMax M3 (premium), Qwen3 Coder (optional). Fallback chain on failure, every
+  call logged to `ai_model_usage_logs` with token/cost, and the active model
+  shown per agent on the Generate screen. Configure model IDs and the default
+  mode entirely via environment variables; review config and usage/cost at
+  `/settings/ai`.
 
 ## Configure These Services
 
@@ -78,6 +92,9 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
      generations with `generation_id` separation, generation-scoped exports and
      agent logs, and Recycle Bin soft-delete; `schema.sql` already includes it
      for fresh installs)
+   - `database/migration_ai_models.sql` (multi-model cost logging table,
+     per-generation quality mode, and per-agent model display; also in
+     `schema.sql` for fresh installs)
    - `database/seed_template_profiles.sql`
    - `database/seed_rules.sql`
 5. Create/connect a Vercel Blob store and confirm `BLOB_READ_WRITE_TOKEN` is available in Vercel.

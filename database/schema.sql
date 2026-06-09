@@ -536,3 +536,36 @@ drop trigger if exists boq_generation_agent_logs_set_updated_at on boq_generatio
 create trigger boq_generation_agent_logs_set_updated_at
 before update on boq_generation_agent_logs
 for each row execute function set_updated_at();
+
+
+-- ===========================================================================
+-- Multi-model AI support (also in migration_ai_models.sql)
+-- ===========================================================================
+create table if not exists ai_model_usage_logs (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid references projects(id) on delete set null,
+  generation_id uuid references boq_generations(id) on delete set null,
+  agent_id text,
+  task_type text not null,
+  model_name text not null,
+  quality_mode text,
+  attempt integer not null default 1,
+  input_tokens integer not null default 0,
+  output_tokens integer not null default 0,
+  estimated_cost numeric(12, 6) not null default 0,
+  status text not null default 'success' check (status in ('success', 'failed')),
+  error_message text,
+  duration_ms integer,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_ai_model_usage_generation on ai_model_usage_logs(generation_id);
+create index if not exists idx_ai_model_usage_project on ai_model_usage_logs(project_id);
+create index if not exists idx_ai_model_usage_created on ai_model_usage_logs(created_at);
+
+alter table boq_generations
+  add column if not exists quality_mode text not null default 'balanced'
+  check (quality_mode in ('economy', 'balanced', 'premium'));
+
+alter table boq_generation_agent_logs
+  add column if not exists model_name text;

@@ -18,6 +18,10 @@ export async function queueGenerationAction(formData: FormData) {
   const user = await requireCurrentAppUser();
   const projectId = z.string().uuid().parse(formData.get("projectId"));
   const label = (formData.get("label") as string | null)?.trim();
+  const qualityMode = z
+    .enum(["economy", "balanced", "premium"])
+    .catch("balanced")
+    .parse(formData.get("qualityMode"));
 
   await assertProjectAccess(projectId, user.id);
 
@@ -48,6 +52,7 @@ export async function queueGenerationAction(formData: FormData) {
     measurementStandard: project.measurement_standard,
     templateId: templates[0]?.id ?? null,
     sourceFileIds,
+    qualityMode,
     createdBy: user.id
   });
 

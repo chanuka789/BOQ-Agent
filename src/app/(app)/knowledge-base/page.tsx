@@ -63,6 +63,12 @@ export default async function KnowledgeBasePage({
         <PageHeader
           title="Knowledge base"
           description="App-wide BOQ knowledge learned from previous BOQs, reused by the agents on every project. Approve, edit, disable, or delete records here."
+          action={
+            <Link className="btn btn-primary" href="/knowledge-base/train">
+              <Brain size={16} aria-hidden="true" />
+              Train from previous BOQs
+            </Link>
+          }
         />
 
         {allForCounts.length === 0 ? (

@@ -52,6 +52,16 @@ export default async function GeneratePage({
                 placeholder="Generation label (optional)"
                 className="h-9 rounded-lg border border-[var(--border)] px-3 text-sm"
               />
+              <select
+                name="qualityMode"
+                defaultValue="balanced"
+                className="h-9 rounded-lg border border-[var(--border)] px-3 text-sm"
+                title="AI quality mode"
+              >
+                <option value="economy">Economy</option>
+                <option value="balanced">Balanced</option>
+                <option value="premium">Premium</option>
+              </select>
               <button className="btn btn-primary" type="submit">
                 <Play size={16} aria-hidden="true" />
                 New generation
@@ -298,7 +308,14 @@ function AgentRow({ log }: { log: BoqGenerationAgentLogRow }) {
     <div className="rounded-lg border border-[var(--border)] p-3">
       <div className="flex items-center justify-between gap-3">
         <span className="font-semibold text-[var(--foreground)]">{log.agent_label}</span>
-        <AgentStatusBadge status={log.status} progress={log.progress} />
+        <div className="flex items-center gap-2">
+          {log.model_name ? (
+            <span className="rounded-md bg-[var(--surface-muted)] px-2 py-0.5 font-mono text-[11px] font-bold text-[var(--muted)]">
+              {log.model_name}
+            </span>
+          ) : null}
+          <AgentStatusBadge status={log.status} progress={log.progress} />
+        </div>
       </div>
       {log.status_text ? (
         <p className="mt-1 text-xs text-[var(--muted)]">{log.status_text}</p>

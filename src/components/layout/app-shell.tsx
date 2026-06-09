@@ -7,6 +7,7 @@ import {
   BookMarked,
   Brain,
   ClipboardList,
+  Cpu,
   Download,
   FileCheck2,
   FileQuestion,
@@ -122,6 +123,13 @@ export function AppShell({ children, userName, userEmail }: AppShellProps) {
               icon={Trash2}
             >
               Recycle Bin
+            </SidebarLink>
+            <SidebarLink
+              href="/settings/ai"
+              active={pathname === "/settings/ai"}
+              icon={Cpu}
+            >
+              AI models
             </SidebarLink>
             <SidebarLink
               href="/settings"

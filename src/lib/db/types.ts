@@ -56,6 +56,7 @@ export type BoqGenerationRow = {
   measurement_standard: MeasurementStandard;
   template_id: string | null;
   status: GenerationStatus;
+  quality_mode: "economy" | "balanced" | "premium";
   source_file_ids: string[];
   item_count: number;
   query_count: number;
@@ -85,6 +86,7 @@ export type BoqGenerationAgentLogRow = {
   status: AgentLogStatus;
   progress: number;
   status_text: string | null;
+  model_name: string | null;
   items_count: number;
   queries_count: number;
   assumptions_count: number;

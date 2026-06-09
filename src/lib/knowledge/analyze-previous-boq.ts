@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getAIProvider } from "@/lib/ai/providers";
+import { runAiJson } from "@/lib/ai/run";
 import { resolveScope } from "@/lib/agents/catalog";
 import { insertAppKnowledge } from "@/lib/db/app-knowledge";
 import { getSql } from "@/lib/db/client";
@@ -99,8 +99,10 @@ export async function analyzePreviousBoqFile(
 
     const trimmedContent = content.slice(0, MAX_CONTENT_CHARS);
 
-    const ai = getAIProvider();
-    const result = await ai.completeJson<FullKnowledgeAnalysis>({
+    const result = await runAiJson<FullKnowledgeAnalysis>({
+      task: "previous_boq_analysis",
+      maxTokens: 8000,
+      context: { projectId: project.id },
       messages: [
         { role: "system", content: boqKnowledgeSystemPrompt },
         {
@@ -112,8 +114,7 @@ export async function analyzePreviousBoqFile(
             content: trimmedContent
           })
         }
-      ],
-      maxTokens: 8000
+      ]
     });
 
     const analysis = result.data ?? {};
@@ -194,21 +195,7 @@ export async function analyzePreviousBoqFile(
       console.error("Failed to write app-wide knowledge:", appKnowledgeError);
     }
 
-    // Record token cost for the AI cost meter.
-    try {
-      const sql = getSql();
-      const totalTokens = result.usage?.totalTokens ?? 0;
-      await sql`
-        insert into ai_usage (project_id, provider, model, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd)
-        values (
-          ${project.id}, 'OpenRouter', ${result.model || ai.model},
-          ${result.usage?.promptTokens ?? 0}, ${result.usage?.completionTokens ?? 0},
-          ${totalTokens}, ${totalTokens * 0.000002}
-        )
-      `;
-    } catch (usageError) {
-      console.error("Failed to record knowledge analysis usage:", usageError);
-    }
+    // Token cost is logged centrally by the model router (ai_model_usage_logs).
 
     // Mark the file as processed so the UI reflects that it was learned from.
     try {
