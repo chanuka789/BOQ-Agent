@@ -34,6 +34,12 @@ const standards = [
 
 export function NewProjectWizard({ action }: WizardProps) {
   const [step, setStep] = useState(0);
+  const [values, setValues] = useState({
+    name: "",
+    clientName: "",
+    projectType: "Commercial fit-out",
+    scope: "Architecture + Internal Design"
+  });
   const [standard, setStandard] = useState<(typeof standards)[number]["value"]>(
     "POMI"
   );
@@ -41,6 +47,12 @@ export function NewProjectWizard({ action }: WizardProps) {
 
   return (
     <form action={action} className="panel max-w-4xl overflow-hidden">
+      <input type="hidden" name="name" value={values.name} />
+      <input type="hidden" name="clientName" value={values.clientName} />
+      <input type="hidden" name="projectType" value={values.projectType} />
+      <input type="hidden" name="scope" value={values.scope} />
+      <input type="hidden" name="measurementStandard" value={standard} />
+
       <div className="border-b border-[var(--border)] bg-white px-6 py-5">
         <div className="mb-3 flex items-center justify-between text-xs font-extrabold text-[var(--muted)]">
           <span>Step {step + 1} of 3</span>
@@ -57,8 +69,22 @@ export function NewProjectWizard({ action }: WizardProps) {
       <div className="p-6">
         {step === 0 ? (
           <section className="grid gap-5 md:grid-cols-2">
-            <Field label="Project name" name="name" required />
-            <Field label="Client name" name="clientName" required />
+            <Field
+              label="Project name"
+              value={values.name}
+              onChange={(value) =>
+                setValues((current) => ({ ...current, name: value }))
+              }
+              required
+            />
+            <Field
+              label="Client name"
+              value={values.clientName}
+              onChange={(value) =>
+                setValues((current) => ({ ...current, clientName: value }))
+              }
+              required
+            />
           </section>
         ) : null}
 
@@ -66,14 +92,18 @@ export function NewProjectWizard({ action }: WizardProps) {
           <section className="grid gap-5 md:grid-cols-2">
             <Field
               label="Project type"
-              name="projectType"
-              defaultValue="Commercial fit-out"
+              value={values.projectType}
+              onChange={(value) =>
+                setValues((current) => ({ ...current, projectType: value }))
+              }
               required
             />
             <Field
               label="Scope"
-              name="scope"
-              defaultValue="Architecture + Internal Design"
+              value={values.scope}
+              onChange={(value) =>
+                setValues((current) => ({ ...current, scope: value }))
+              }
               required
             />
           </section>
@@ -81,11 +111,6 @@ export function NewProjectWizard({ action }: WizardProps) {
 
         {step === 2 ? (
           <section>
-            <input
-              type="hidden"
-              name="measurementStandard"
-              value={standard}
-            />
             <div className="grid gap-3 md:grid-cols-2">
               {standards.map((item) => (
                 <button
@@ -147,13 +172,13 @@ export function NewProjectWizard({ action }: WizardProps) {
 
 function Field({
   label,
-  name,
-  defaultValue,
+  value,
+  onChange,
   required
 }: {
   label: string;
-  name: string;
-  defaultValue?: string;
+  value: string;
+  onChange: (value: string) => void;
   required?: boolean;
 }) {
   return (
@@ -161,8 +186,8 @@ function Field({
       <span className="label">{label}</span>
       <input
         className="input"
-        name={name}
-        defaultValue={defaultValue}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
         required={required}
       />
     </label>
