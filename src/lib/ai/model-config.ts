@@ -39,25 +39,24 @@ export const DEFAULT_QUALITY_MODE: QualityMode = isQualityMode(process.env.AI_DE
   ? process.env.AI_DEFAULT_MODE
   : "balanced";
 
-// Actual OpenRouter model IDs. Defaults are best-known IDs; override per env.
-// If an ID is wrong for your account, set the matching AI_MODEL_* variable.
+// Actual OpenRouter model IDs (verified June 2026). Override any with the
+// matching AI_MODEL_* env var — e.g. set AI_MODEL_MINIMAX_M3=minimax/minimax-m3
+// once MiniMax M3 is published on OpenRouter (currently M2 is the latest).
 export const MODEL_IDS: Record<ModelRole, string> = {
-  glm_flash: process.env.AI_MODEL_GLM_FLASH || "z-ai/glm-4.6",
+  glm_flash: process.env.AI_MODEL_GLM_FLASH || "z-ai/glm-4.7",
   glm_free: process.env.AI_MODEL_GLM_FREE || "z-ai/glm-4.5-air:free",
   gemini_flash_lite:
     process.env.AI_MODEL_GEMINI_FLASH_LITE || "google/gemini-2.5-flash-lite",
   minimax_m3:
-    process.env.AI_MODEL_MINIMAX_M3 ||
-    process.env.OPENROUTER_MODEL ||
-    "minimax/minimax-m3",
-  qwen_coder: process.env.AI_MODEL_QWEN_CODER || "qwen/qwen3-coder"
+    process.env.AI_MODEL_MINIMAX_M3 || process.env.OPENROUTER_MODEL || "minimax/minimax-m2",
+  qwen_coder: process.env.AI_MODEL_QWEN_CODER || "qwen/qwen3-coder-flash"
 };
 
 export const MODEL_LABELS: Record<ModelRole, string> = {
-  glm_flash: "GLM 4.7 Flash",
+  glm_flash: "GLM 4.7",
   glm_free: "GLM 4.5 Air (Free)",
   gemini_flash_lite: "Gemini 2.5 Flash-Lite",
-  minimax_m3: "MiniMax M3",
+  minimax_m3: "MiniMax M2",
   qwen_coder: "Qwen3 Coder Flash"
 };
 
