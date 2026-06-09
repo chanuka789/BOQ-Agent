@@ -111,6 +111,8 @@ export default async function GeneratePage({
               </p>
             )}
 
+            {agentLogs.length > 0 ? <ProcessingLog logs={agentLogs} /> : null}
+
             <div className="mt-4 flex flex-wrap gap-2">
               <Link className="btn btn-secondary" href={`/projects/${projectId}/boq-review?generation=${latest.id}`}>
                 <Table2 size={15} aria-hidden="true" />
@@ -215,11 +217,14 @@ function OverallProgress({
   logs: BoqGenerationAgentLogRow[];
   status: string;
 }) {
+  // The export agent runs on-demand at download time, so exclude it from the
+  // section-generation progress (it stays "waiting" until the user exports).
+  const scored = logs.filter((log) => log.agent_id !== "export-agent");
   let percent = status === "completed" || status === "exported" ? 100 : 0;
-  if (logs.length > 0 && percent !== 100) {
+  if (scored.length > 0 && percent !== 100) {
     percent = Math.round(
-      logs.reduce((acc, log) => acc + (log.status === "skipped" ? 100 : log.progress), 0) /
-        logs.length
+      scored.reduce((acc, log) => acc + (log.status === "skipped" ? 100 : log.progress), 0) /
+        scored.length
     );
   }
   return (
@@ -255,6 +260,36 @@ function AgentCountChip({
     <Badge tone={tone}>
       {label}: {count}
     </Badge>
+  );
+}
+
+function ProcessingLog({ logs }: { logs: BoqGenerationAgentLogRow[] }) {
+  const entries = [...logs]
+    .filter((log) => log.status_text)
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .slice(0, 30);
+
+  if (entries.length === 0) return null;
+
+  return (
+    <details className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-3">
+      <summary className="cursor-pointer text-sm font-extrabold text-[var(--foreground)]">
+        Processing log
+      </summary>
+      <ul className="mt-3 space-y-1.5 font-mono text-xs text-[var(--muted)]">
+        {entries.map((log) => (
+          <li key={`${log.id}-${log.updated_at}`} className="flex gap-2">
+            <span className="shrink-0 text-[var(--foreground)]">
+              {new Date(log.updated_at).toLocaleTimeString()}
+            </span>
+            <span className="shrink-0 font-bold">[{log.status}]</span>
+            <span>
+              {log.agent_label}: {log.status_text}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

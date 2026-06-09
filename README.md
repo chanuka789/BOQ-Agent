@@ -47,6 +47,12 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
   scope has no documents are skipped with a reason (e.g. "Skipped — no Structural
   documents uploaded") and shown live on the Generate screen with per-agent and
   overall progress.
+- Real-time pipeline agents: a BOQ QA Agent (removes duplicates and raises
+  queries for missing units and missing source references) and an Excel Export
+  Agent appear as live agents alongside the section agents. The Generate screen
+  shows overall %, per-agent %, status (running/waiting/completed/skipped/
+  failed) with counts and live status text, and an expandable processing log;
+  it auto-refreshes while a generation is running.
 
 ## Configure These Services
 
