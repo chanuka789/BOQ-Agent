@@ -16,7 +16,11 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
   this knowledge when generating new drafts so the output matches your style.
 - U-View BOQ template profile seed based on the supplied Bill No. 1 to Bill No. 8.4 workbooks.
 - Template parser foundation for future BOQ formats.
-- Rule library with editable unit/description rules.
+- App-wide BOQ rule library (`/rules`): shared across all projects and organised
+  by measurement-standard section (POMI GP/A–R, NRM2 1–41, NRM1 elements). Each
+  rule can be assigned to a section (or left general); section agents read their
+  own section's rules plus general rules. Moved out of the per-project workflow —
+  rules are common to the app and depend only on the measurement method.
 - Measurement-method-aware generation (POMI / NRM2 / NRM1 / Custom). Units are
   never guessed — they are checked against the selected method, the rule library,
   the uploaded documents, and the learned previous-BOQ patterns, or a query is raised.
@@ -95,6 +99,8 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
    - `database/migration_ai_models.sql` (multi-model cost logging table,
      per-generation quality mode, and per-agent model display; also in
      `schema.sql` for fresh installs)
+   - `database/migration_rule_sections.sql` (adds `section_code` to the app-wide
+     rule library; also in `schema.sql` for fresh installs)
    - `database/seed_template_profiles.sql`
    - `database/seed_rules.sql`
 5. Create/connect a Vercel Blob store and confirm `BLOB_READ_WRITE_TOKEN` is available in Vercel.

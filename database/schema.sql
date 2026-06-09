@@ -87,6 +87,7 @@ create table if not exists boq_template_profiles (
 create table if not exists boq_rules (
   id uuid primary key default gen_random_uuid(),
   measurement_standard text not null check (measurement_standard in ('POMI', 'NRM2', 'NRM1', 'Custom')),
+  section_code text,
   scope text not null,
   trade text not null,
   item_type text not null,
@@ -99,6 +100,7 @@ create table if not exists boq_rules (
   updated_at timestamptz not null default now(),
   unique (measurement_standard, scope, trade, item_type, unit)
 );
+create index if not exists idx_boq_rules_section on boq_rules(measurement_standard, section_code);
 
 create table if not exists boq_templates (
   id uuid primary key default gen_random_uuid(),

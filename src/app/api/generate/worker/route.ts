@@ -68,11 +68,12 @@ export async function POST(req: NextRequest) {
 
     // 2. Get rules for the project's measurement standard.
     const allRules = await getRules({ projectId });
-    // Section agents see all rules for the standard (they self-focus on their
-    // section); legacy custom trade agents keep the trade-filtered subset.
+    // Section agents get the rules for their measurement-standard section plus
+    // any general (section-less) rules; legacy custom trade agents keep the
+    // trade-filtered subset.
     const isSectionAgent = sectionCode !== "";
     const rules = isSectionAgent
-      ? allRules
+      ? allRules.filter((r) => !r.section_code || r.section_code === sectionCode)
       : allRules.filter(
           (r) =>
             r.trade.toLowerCase() === trade.toLowerCase() ||

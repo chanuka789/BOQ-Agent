@@ -63,7 +63,6 @@ export async function updateProjectAction(formData: FormData) {
 
   revalidatePath(`/projects/${parsed.projectId}/settings`);
   revalidatePath(`/projects/${parsed.projectId}/upload`);
-  revalidatePath(`/projects/${parsed.projectId}/rules`);
   revalidatePath(`/projects/${parsed.projectId}/generate`);
   revalidatePath(`/projects/${parsed.projectId}/boq-review`);
   revalidatePath("/dashboard");
