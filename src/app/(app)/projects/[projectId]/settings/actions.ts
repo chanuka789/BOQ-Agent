@@ -30,7 +30,7 @@ export async function updateProjectAction(formData: FormData) {
   });
 
   if (!parseResult.success) {
-    const message = parseResult.error.errors.map((e) => e.message).join(", ");
+    const message = parseResult.error.issues.map((e) => e.message).join(", ");
     redirect(`/projects/${formData.get("projectId")}/settings?error=${encodeURIComponent(message)}`);
   }
 

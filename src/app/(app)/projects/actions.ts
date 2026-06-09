@@ -26,7 +26,7 @@ export async function createProjectAction(formData: FormData) {
   });
 
   if (!parseResult.success) {
-    const message = parseResult.error.errors.map((e) => e.message).join(", ");
+    const message = parseResult.error.issues.map((e) => e.message).join(", ");
     redirect(`/projects/new?error=${encodeURIComponent(message)}`);
   }
 
