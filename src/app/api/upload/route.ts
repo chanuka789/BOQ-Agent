@@ -55,6 +55,10 @@ export async function POST(request: Request) {
         };
       },
       onUploadCompleted: async ({ blob, tokenPayload }) => {
+        if (!tokenPayload) {
+          throw new Error("Vercel Blob upload callback is missing token payload.");
+        }
+
         const parsed = tokenPayloadSchema.parse(JSON.parse(tokenPayload));
         const file = await createProjectFile({
           projectId: parsed.projectId,
