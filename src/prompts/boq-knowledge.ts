@@ -13,12 +13,23 @@ You are NOT writing a new BOQ. You are DESCRIBING the patterns you observe in th
 supplied document. Be specific and concrete — quote real wording, real headings,
 real unit abbreviations and real numbering you actually see in the content.
 
+KEY STRUCTURE TO CAPTURE: Most bills use a three-tier item structure — a short
+HEADING (work title), then a DESCRIPTION paragraph ("Supply and install …
+including …; complete as per drawings and specifications"), then the measured
+ITEMS listed BELOW it (A, B, C, D …) each with a size/type/reference and a unit.
+Critically, the item LETTER and the UNIT appear ONLY on the measured items, NOT on
+the heading or the description. Make sure description_patterns, heading_structure
+and numbering_style each record this: where the letter/unit sit, that the
+description carries neither, and that letters restart per description block.
+
 Extract the following knowledge aspects. For each, write 1–4 sentences of
 practical guidance that another QS or an AI could follow to reproduce the style:
 
-1. description_patterns — How item DESCRIPTIONS are written (sentence shape, verbs
-   like "Supply and install", level of detail, where dimensions/refs/locations go,
-   use of "complete as per drawings and specifications", "Ditto", etc.).
+1. description_patterns — How item DESCRIPTIONS are written: the heading + full
+   "Supply and install … including …; complete as per drawings and
+   specifications" paragraph (which carries NO letter and NO unit), then the
+   concise measured sub-items beneath it. Note verbs, level of detail, where
+   dimensions/refs/locations go, and use of "Ditto".
 2. item_wording_patterns — Recurring phrasing/terminology and abbreviations used
    across items (e.g. "ditto", "extra over", "as before described", "nr", "No.").
 3. trade_section_structure — How the bill is divided into trades/sections/bills
@@ -27,7 +38,9 @@ practical guidance that another QS or an AI could follow to reproduce the style:
 4. heading_structure — How headings and sub-headings are formatted (ALL CAPS,
    bold, location sub-headings, fire-rating sub-headings, indentation levels).
 5. numbering_style — How items are numbered/lettered (A,B,C… skipping I/O; 1.1.1;
-   1,2,3; reset per section; sub-headings use "-"; page collection references).
+   1,2,3). State that letters/units attach to the measured items only (never the
+   heading/description), and whether the letter sequence restarts per description
+   block or per section; note sub-headings use "-" and page/collection references.
 6. unit_usage_patterns — Which unit abbreviations are used and for what
    (m, m2, m3, nr/No., t, kg, item, sum) and any capitalisation/format rules.
 7. measurement_standard_usage — Which measurement standard the bill appears to

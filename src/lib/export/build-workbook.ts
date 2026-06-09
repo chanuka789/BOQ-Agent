@@ -128,14 +128,19 @@ function buildBoqSheet(
     sectionRow.eachCell((cell) => (cell.border = THIN_BORDER));
 
     for (const item of sectionItems) {
-      const isHeading = item.item_type === "sub_heading";
-      const isPreamble = item.item_type === "preamble";
+      // Headings and descriptions never carry an item letter or a unit — only
+      // measured items do.
+      const isHeading =
+        item.item_type === "sub_heading" || item.item_type === "heading";
+      const isDescription =
+        item.item_type === "description" || item.item_type === "preamble";
+      const noRefOrUnit = isHeading || isDescription;
       const blank = ""; // quantity / rate / amount stay blank
 
       const row = ws.addRow([
-        item.item_no && item.item_no !== "-" ? item.item_no : "",
+        !noRefOrUnit && item.item_no && item.item_no !== "-" ? item.item_no : "",
         item.description,
-        isHeading || isPreamble ? "" : item.unit,
+        noRefOrUnit ? "" : item.unit,
         blank,
         blank,
         blank
@@ -155,7 +160,7 @@ function buildBoqSheet(
             fgColor: { argb: SUBHEADING_FILL }
           };
         });
-      } else if (isPreamble) {
+      } else if (isDescription) {
         descCell.font = { italic: true };
       }
 

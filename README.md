@@ -106,6 +106,9 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
      rule library; also in `schema.sql` for fresh installs)
    - `database/migration_knowledge_rules.sql` (adds `error_message` to
      `previous_boq_uploads`; also in `schema.sql` for fresh installs)
+   - `database/migration_item_order.sql` (adds `position` to `boq_items` so the
+     heading → description → lettered-items order is preserved; also in
+     `schema.sql` for fresh installs)
    - `database/seed_template_profiles.sql`
    - `database/seed_rules.sql`
 5. Create/connect a Vercel Blob store and confirm `BLOB_READ_WRITE_TOKEN` is available in Vercel.
