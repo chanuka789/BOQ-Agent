@@ -293,7 +293,7 @@ export async function insertBoqItemsBulk(
   }>
 ) {
   if (items.length === 0) return;
-  const sql = getSql();
+  const sql = getSql() as any;
 
   const columns = [
     "project_id", "item_no", "section", "trade", "item_type", "description",
@@ -337,7 +337,7 @@ export async function insertBoqQueriesBulk(
   queries: Array<{ issue: string; clarification_needed: string; source_reference?: string | null }>
 ) {
   if (queries.length === 0) return;
-  const sql = getSql();
+  const sql = getSql() as any;
   
   const columns = ["project_id", "issue", "clarification_needed", "source_reference", "status"];
   const placeholders: string[] = [];
@@ -371,7 +371,7 @@ export async function insertBoqAssumptionsBulk(
   assumptions: Array<{ assumption: string; source_reference?: string | null }>
 ) {
   if (assumptions.length === 0) return;
-  const sql = getSql();
+  const sql = getSql() as any;
   
   const columns = ["project_id", "assumption", "source_reference"];
   const placeholders: string[] = [];
