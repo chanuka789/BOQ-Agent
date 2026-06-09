@@ -24,20 +24,27 @@ export async function createProjectAction(formData: FormData) {
     measurementStandard: formData.get("measurementStandard")
   });
 
-  const project = await createProjectForUser({
-    user,
-    ...parsed
-  });
+  let project;
+  try {
+    project = await createProjectForUser({
+      user,
+      ...parsed
+    });
 
-  await addActivityLog({
-    projectId: project.id,
-    userId: user.id,
-    action: "project.created",
-    details: {
-      measurementStandard: parsed.measurementStandard,
-      scope: parsed.scope
-    }
-  });
+    await addActivityLog({
+      projectId: project.id,
+      userId: user.id,
+      action: "project.created",
+      details: {
+        measurementStandard: parsed.measurementStandard,
+        scope: parsed.scope
+      }
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("CREATE_PROJECT_ERROR:", error);
+    redirect(`/projects/new?error=${encodeURIComponent(message)}`);
+  }
 
   redirect(`/projects/${project.id}/upload`);
 }
