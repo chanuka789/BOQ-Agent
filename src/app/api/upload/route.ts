@@ -147,54 +147,65 @@ export async function POST(request: Request) {
         };
       },
       onUploadCompleted: async ({ blob, tokenPayload }) => {
-        if (!tokenPayload) {
-          throw new Error("Vercel Blob upload callback is missing token payload.");
-        }
+        try {
+          if (!tokenPayload) {
+            throw new Error("Vercel Blob upload callback is missing token payload.");
+          }
 
-        const parsed = parseJsonPayload(
-          tokenPayload,
-          tokenPayloadSchema,
-          "Upload callback metadata"
-        );
-        const file = await createProjectFile({
-          projectId: parsed.projectId,
-          uploadedBy: parsed.userId,
-          fileName: blob.pathname.split("/").pop() ?? blob.pathname,
-          fileType: parsed.fileRole,
-          mimeType: blob.contentType ?? null,
-          sizeBytes: parsed.sizeBytes ?? 0,
-          storageUrl: blob.url
-        });
-
-        if (parsed.fileRole === "boq_template") {
-          await createTemplateRecordForFile({
+          const parsed = parseJsonPayload(
+            tokenPayload,
+            tokenPayloadSchema,
+            "Upload callback metadata"
+          );
+          const file = await createProjectFile({
             projectId: parsed.projectId,
-            file,
-            parsedStructure: {
-              status: "queued_for_parsing",
-              source: "Vercel Blob upload callback"
+            uploadedBy: parsed.userId,
+            fileName: blob.pathname.split("/").pop() ?? blob.pathname,
+            fileType: parsed.fileRole,
+            mimeType: blob.contentType ?? null,
+            sizeBytes: parsed.sizeBytes ?? 0,
+            storageUrl: blob.url
+          });
+
+          if (parsed.fileRole === "boq_template") {
+            await createTemplateRecordForFile({
+              projectId: parsed.projectId,
+              file,
+              parsedStructure: {
+                status: "queued_for_parsing",
+                source: "Vercel Blob upload callback"
+              }
+            });
+          }
+
+          await updateProjectStatus({
+            projectId: parsed.projectId,
+            status: "documents_uploaded"
+          });
+
+          await addActivityLog({
+            projectId: parsed.projectId,
+            userId: parsed.userId,
+            action:
+              parsed.fileRole === "boq_template"
+                ? "template.uploaded"
+                : "file.uploaded",
+            details: {
+              pathname: blob.pathname,
+              url: blob.url,
+              contentType: blob.contentType
             }
           });
-        }
 
-        await updateProjectStatus({
-          projectId: parsed.projectId,
-          status: "documents_uploaded"
-        });
-
-        await addActivityLog({
-          projectId: parsed.projectId,
-          userId: parsed.userId,
-          action:
-            parsed.fileRole === "boq_template"
-              ? "template.uploaded"
-              : "file.uploaded",
-          details: {
+          console.info("BOQ upload completed", {
             pathname: blob.pathname,
-            url: blob.url,
-            contentType: blob.contentType
-          }
-        });
+            contentType: blob.contentType,
+            fileRole: parsed.fileRole,
+            projectId: parsed.projectId
+          });
+        } catch (error) {
+          logUploadError("BOQ upload metadata save failed", error);
+        }
       }
     });
 
