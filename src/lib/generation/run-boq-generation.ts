@@ -3,16 +3,59 @@ import "server-only";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { selectSectionAgents, type FileSignal, type SectionAgent } from "@/lib/agents/sections";
+import { SCOPES } from "@/lib/agents/catalog";
+import { isQualityMode, type QualityMode } from "@/lib/ai/model-config";
+import { primaryModel } from "@/lib/ai/model-router";
+import { runAiJson } from "@/lib/ai/run";
 import { insertBoqQueriesBulk, updateAgentJob } from "@/lib/db/boq";
 import { getSql } from "@/lib/db/client";
 import { getProjectFiles } from "@/lib/db/files";
-import { updateGenerationStatus, upsertAgentLog } from "@/lib/db/generations";
+import { getGeneration, updateGenerationStatus, upsertAgentLog } from "@/lib/db/generations";
 import { extractFileText } from "@/lib/documents/extractor";
 import type { ProjectFileRow, ProjectRow } from "@/lib/db/types";
+
+/**
+ * Main coordinator decision: ask a cheap model which discipline scopes are
+ * actually present in the uploaded documents. Returns extra scope names to merge
+ * with keyword detection. Best-effort — falls back to keyword detection on error.
+ */
+async function detectScopesWithAI(
+  signals: FileSignal[],
+  mode: QualityMode,
+  context: { projectId: string; generationId?: string | null }
+): Promise<string[]> {
+  const summary = signals
+    .map((s, i) => `Doc ${i + 1}: ${s.fileName}${s.documentType ? ` (${s.documentType})` : ""}\n${(s.textSample ?? "").slice(0, 1500)}`)
+    .join("\n\n")
+    .slice(0, 18000);
+  if (summary.trim().length === 0) return [];
+
+  const scopeNames = SCOPES.map((s) => s.scope);
+  try {
+    const result = await runAiJson<{ scopes: string[] }>({
+      task: "scope_detection",
+      mode,
+      maxTokens: 500,
+      context: { projectId: context.projectId, generationId: context.generationId, agentId: "coordinator" },
+      messages: [
+        {
+          role: "system",
+          content: `You are the lead Quantity Surveyor coordinating a BOQ. From the uploaded project documents, decide which discipline scopes are actually present and require a BOQ agent. Only choose from: ${scopeNames.join(", ")}. Do not include a scope unless its work clearly appears. Return strict JSON: {"scopes": ["..."]}.`
+        },
+        { role: "user", content: `Documents:\n${summary}\n\nReturn the present scopes as strict JSON.` }
+      ]
+    });
+    return (result.data.scopes ?? []).filter((s) => scopeNames.includes(s));
+  } catch (error) {
+    console.error("AI scope detection failed, using keyword detection:", error);
+    return [];
+  }
+}
 
 type WorkerResult = {
   success: boolean;
   trade: string;
+  model?: string;
   itemsCount: number;
   queriesCount: number;
   assumptionsCount: number;
@@ -95,18 +138,24 @@ export async function runBoqGeneration(
       await updateGenerationStatus(generationId, "running");
     }
 
-    const [project, allFiles] = await Promise.all([
+    const [project, allFiles, generationRow] = await Promise.all([
       getProjectById(projectId),
-      getProjectFiles(projectId)
+      getProjectFiles(projectId),
+      generationId ? getGeneration(generationId) : Promise.resolve(null)
     ]);
     if (!project) throw new Error("Project not found.");
+
+    const mode: QualityMode = isQualityMode(generationRow?.quality_mode)
+      ? generationRow.quality_mode
+      : "balanced";
+    const sectionModelLabel = primaryModel("section_agent_processing", mode);
 
     // Only true source documents feed generation and scope detection.
     const sourceFiles = allFiles.filter((file) => file.file_type === "source_document");
 
     await updateAgentJob(jobId, {
       status: "running",
-      currentStep: "Detecting available scopes from uploaded documents",
+      currentStep: "Main coordinator — detecting available scopes from documents",
       progress: 15
     });
 
@@ -119,10 +168,17 @@ export async function runBoqGeneration(
 
     if (standard === "POMI" || standard === "NRM2" || standard === "NRM1") {
       const signals = await buildFileSignals(sourceFiles);
+      // The main coordinator uses an AI pass to decide present scopes, merged
+      // with keyword detection (injected as an extra signal).
+      const aiScopes = await detectScopesWithAI(signals, mode, { projectId, generationId });
+      const enrichedSignals =
+        aiScopes.length > 0
+          ? [...signals, { fileName: "coordinator-detection", textSample: aiScopes.join(" ") }]
+          : signals;
       const selection = selectSectionAgents({
         standard,
         projectScope: project.scope,
-        signals
+        signals: enrichedSignals
       });
       runAgents = selection.run;
       skippedAgents = selection.skipped;
@@ -171,7 +227,8 @@ export async function runBoqGeneration(
             sectionCode: agent.code || null,
             status: "running",
             progress: 10,
-            statusText: `Reading documents for ${agent.title}.`
+            statusText: `Reading documents for ${agent.title} (${sectionModelLabel}).`,
+            modelName: sectionModelLabel
           })
         )
       );
@@ -231,6 +288,7 @@ export async function runBoqGeneration(
               projectId,
               jobId,
               generationId,
+              qualityMode: mode,
               fileIds: sourceFileIds,
               trade: agent.title,
               scope: agent.scope,
@@ -252,9 +310,10 @@ export async function runBoqGeneration(
               sectionCode: agent.code || null,
               status: data.itemsCount > 0 ? "completed" : "skipped",
               progress: 100,
+              modelName: data.model ?? sectionModelLabel,
               statusText:
                 data.itemsCount > 0
-                  ? `Generated ${data.itemsCount} ${agent.title} item(s).`
+                  ? `Generated ${data.itemsCount} ${agent.title} item(s) with ${data.model ?? sectionModelLabel}.`
                   : `No ${agent.title} items found in the uploaded documents.`,
               itemsCount: data.itemsCount,
               queriesCount: data.queriesCount,
@@ -304,6 +363,7 @@ export async function runBoqGeneration(
       currentStep: "BOQ QA Agent — checking duplicates, units and missing data",
       progress: 85
     });
+    const qaModel = primaryModel("final_boq_qa", mode);
     if (generationId) {
       await upsertAgentLog({
         generationId,
@@ -312,7 +372,8 @@ export async function runBoqGeneration(
         agentLabel: "BOQ QA Agent",
         status: "running",
         progress: 40,
-        statusText: "Checking duplicate items, incorrect units and missing source references."
+        modelName: qaModel,
+        statusText: `Checking duplicates, units and missing data with ${qaModel}.`
       });
     }
 
@@ -342,7 +403,7 @@ export async function runBoqGeneration(
       await sql`delete from boq_items where id = any(${duplicatesToDelete})`;
     }
 
-    // QA flags raised as queries (not silent fixes), capped to avoid flooding.
+    // Deterministic QA flags raised as queries (not silent fixes).
     const removed = new Set(duplicatesToDelete);
     const measured = items.filter(
       (i) => !removed.has(i.id) && i.item_type === "measured"
@@ -366,6 +427,42 @@ export async function runBoqGeneration(
         source_reference: null
       }))
     ];
+
+    // Final LLM QA review (routed to the QA model) — best-effort, bounded.
+    let llmQaCount = 0;
+    if (measured.length > 0) {
+      try {
+        const sample = measured
+          .slice(0, 60)
+          .map((i, n) => `${n + 1}. [${i.trade}] ${i.description} (unit: ${i.unit || "—"})`)
+          .join("\n");
+        const review = await runAiJson<{
+          queries: Array<{ issue: string; clarification_needed: string; source_reference?: string }>;
+        }>({
+          task: "final_boq_qa",
+          mode,
+          maxTokens: 2000,
+          context: { projectId, generationId, agentId: "qa-agent" },
+          messages: [
+            {
+              role: "system",
+              content: `You are the BOQ QA Agent for a ${standard} bill. Review the draft items for: incorrect or implausible units for the described work, likely duplicates/overlaps, conflicting descriptions, and missing material/size/finish/fire-rating detail. Do NOT rewrite items. Raise concise queries/RFIs only. Never comment on quantities, rates or amounts (they are intentionally blank). Return strict JSON {"queries":[{"issue","clarification_needed","source_reference"}]}, at most 20.`
+            },
+            { role: "user", content: `Draft items:\n${sample}\n\nReturn QA queries as strict JSON.` }
+          ]
+        });
+        const reviewed = (review.data.queries ?? []).slice(0, 20).map((q) => ({
+          issue: q.issue,
+          clarification_needed: q.clarification_needed,
+          source_reference: q.source_reference ?? null
+        }));
+        llmQaCount = reviewed.length;
+        qaQueries.push(...reviewed);
+      } catch (qaError) {
+        console.error("LLM final QA failed (non-fatal):", qaError);
+      }
+    }
+
     if (qaQueries.length > 0) {
       await insertBoqQueriesBulk(projectId, qaQueries, generationId).catch(() => {});
     }
@@ -378,7 +475,8 @@ export async function runBoqGeneration(
         agentLabel: "BOQ QA Agent",
         status: "completed",
         progress: 100,
-        statusText: `Removed ${duplicatesToDelete.length} duplicate(s); flagged ${missingUnit.length} unit and ${missingRef.length} source-reference issue(s) as queries.`,
+        modelName: qaModel,
+        statusText: `Removed ${duplicatesToDelete.length} duplicate(s); flagged ${missingUnit.length} unit, ${missingRef.length} source-reference and ${llmQaCount} review issue(s) as queries.`,
         queriesCount: qaQueries.length
       });
     }

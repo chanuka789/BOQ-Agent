@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSql } from "@/lib/db/client";
-import { getAIProvider } from "@/lib/ai/providers";
+import { runAiJson } from "@/lib/ai/run";
+import { estimateCost, isQualityMode, type QualityMode } from "@/lib/ai/model-config";
 import { extractFileText, getVisionPayload, VisionPayload } from "@/lib/documents/extractor";
 import { insertBoqItemsBulk, insertBoqQueriesBulk, insertBoqAssumptionsBulk } from "@/lib/db/boq";
 import { getProjectFiles } from "@/lib/db/files";
@@ -40,7 +41,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { projectId, trade, scope, fileIds, jobId, generationId, agent } = await req.json();
+    const body = await req.json();
+    const { projectId, trade, scope, fileIds, jobId, generationId, agent } = body;
+    const qualityMode: QualityMode = isQualityMode(body.qualityMode)
+      ? body.qualityMode
+      : "balanced";
 
     if (!projectId || !trade) {
       return NextResponse.json({ error: "Missing projectId or trade" }, { status: 400 });
@@ -215,14 +220,17 @@ Return strict JSON only.
 
     const userPrompt = visionPayloads.length > 0 ? (userPromptContent as any) : userPromptContent[0].text;
 
-    // 7. Call LLM (OpenRouter)
-    const ai = getAIProvider();
-    const result = await ai.completeJson<GenerationResult>({
+    // 7. Call LLM via the model router (task + quality mode pick the model,
+    //    with fallback and cost logging handled centrally).
+    const result = await runAiJson<GenerationResult>({
+      task: "section_agent_processing",
+      mode: qualityMode,
       messages: [
         { role: "system", content: tradeSystemPrompt },
         { role: "user", content: userPrompt }
       ],
-      maxTokens: 16000
+      maxTokens: 16000,
+      context: { projectId, generationId, agentId: agent?.agentId ?? `trade-${trade}` }
     });
 
     const boqItems = result.data.boq_items ?? [];
@@ -273,42 +281,22 @@ Return strict JSON only.
     }));
     await insertBoqAssumptionsBulk(projectId, cleanedAssumptions, generationId);
 
-    // 9. Save AI Usage
-    const promptTokens = result.usage?.promptTokens ?? 0;
-    const completionTokens = result.usage?.completionTokens ?? 0;
+    // 9. Cost/usage is logged centrally by the model router (ai_model_usage_logs).
     const totalTokens = result.usage?.totalTokens ?? 0;
-    const estimatedCostUsd = totalTokens * 0.000002;
-
-    await sql`
-      insert into ai_usage (
-        project_id,
-        agent_job_id,
-        provider,
-        model,
-        prompt_tokens,
-        completion_tokens,
-        total_tokens,
-        estimated_cost_usd
-      )
-      values (
-        ${projectId},
-        ${jobId || null},
-        'OpenRouter',
-        ${result.model || ai.model},
-        ${promptTokens},
-        ${completionTokens},
-        ${totalTokens},
-        ${estimatedCostUsd}
-      )
-    `;
+    const estimatedCostUsd = estimateCost(
+      result.model,
+      result.usage?.promptTokens ?? 0,
+      result.usage?.completionTokens ?? 0
+    );
 
     return NextResponse.json({
       success: true,
       trade,
+      model: result.model,
       itemsCount: cleanedItems.length,
       queriesCount: cleanedQueries.length,
       assumptionsCount: cleanedAssumptions.length,
-      estimatedCostUsd
+      estimatedCostUsd: estimatedCostUsd || totalTokens * 0.000002
     });
   } catch (error) {
     console.error("Error in trade worker:", error);

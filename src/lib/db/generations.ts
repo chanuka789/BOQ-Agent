@@ -13,6 +13,7 @@ export async function createGeneration({
   measurementStandard,
   templateId,
   sourceFileIds,
+  qualityMode = "balanced",
   createdBy
 }: {
   projectId: string;
@@ -20,17 +21,18 @@ export async function createGeneration({
   measurementStandard: string;
   templateId?: string | null;
   sourceFileIds: string[];
+  qualityMode?: string;
   createdBy?: string | null;
 }) {
   const sql = getSql();
   const rows = (await sql`
     insert into boq_generations (
       project_id, label, measurement_standard, template_id, source_file_ids,
-      status, created_by
+      quality_mode, status, created_by
     )
     values (
       ${projectId}, ${label}, ${measurementStandard}, ${templateId ?? null},
-      ${JSON.stringify(sourceFileIds)}::jsonb, 'queued', ${createdBy ?? null}
+      ${JSON.stringify(sourceFileIds)}::jsonb, ${qualityMode}, 'queued', ${createdBy ?? null}
     )
     returning *
   `) as BoqGenerationRow[];
@@ -216,6 +218,7 @@ export async function upsertAgentLog({
   status,
   progress,
   statusText,
+  modelName,
   itemsCount,
   queriesCount,
   assumptionsCount,
@@ -230,6 +233,7 @@ export async function upsertAgentLog({
   status: AgentLogStatus;
   progress?: number;
   statusText?: string | null;
+  modelName?: string | null;
   itemsCount?: number;
   queriesCount?: number;
   assumptionsCount?: number;
@@ -248,6 +252,7 @@ export async function upsertAgentLog({
       set status = ${status},
           progress = coalesce(${progress ?? null}, progress),
           status_text = ${statusText ?? null},
+          model_name = coalesce(${modelName ?? null}, model_name),
           items_count = coalesce(${itemsCount ?? null}, items_count),
           queries_count = coalesce(${queriesCount ?? null}, queries_count),
           assumptions_count = coalesce(${assumptionsCount ?? null}, assumptions_count),
@@ -263,13 +268,13 @@ export async function upsertAgentLog({
   await sql`
     insert into boq_generation_agent_logs (
       generation_id, project_id, agent_id, agent_label, scope, section_code,
-      status, progress, status_text, items_count, queries_count, assumptions_count,
+      status, progress, status_text, model_name, items_count, queries_count, assumptions_count,
       error_message, started_at, completed_at
     )
     values (
       ${generationId}, ${projectId}, ${agentId}, ${agentLabel}, ${scope ?? null},
       ${sectionCode ?? null}, ${status}, ${progress ?? 0}, ${statusText ?? null},
-      ${itemsCount ?? 0}, ${queriesCount ?? 0}, ${assumptionsCount ?? 0},
+      ${modelName ?? null}, ${itemsCount ?? 0}, ${queriesCount ?? 0}, ${assumptionsCount ?? 0},
       ${errorMessage ?? null},
       case when ${status} = 'running' then now() else null end,
       case when ${status} in ('completed', 'skipped', 'failed') then now() else null end
