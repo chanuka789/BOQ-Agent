@@ -84,31 +84,22 @@ export async function processProjectFile(
       }
     };
 
+    // Collect schedule-parse candidates while chunking, then parse them all in
+    // parallel (each parse is an LLM call — sequential parsing was the slowest
+    // part of processing).
+    const scheduleJobs: Array<{
+      type: NonNullable<ReturnType<typeof detectScheduleType>>;
+      content: string;
+      pageNumber: number | null;
+    }> = [];
+
     // PDF pages
     for (const page of extraction.pages) {
       if (!page.text) continue;
       addChunks(page.text, page.pageNumber);
-      if (schedulesStored < MAX_SCHEDULES_PER_FILE) {
+      if (scheduleJobs.length < MAX_SCHEDULES_PER_FILE) {
         const type = detectScheduleType(page.text);
-        if (type) {
-          const parsed = await parseSchedule(type, page.text, { projectId: project.id });
-          if (parsed.rows.length > 0) {
-            const { scope } = classifyChunk(page.text, file.file_name, project.measurement_standard);
-            await insertSchedule({
-              projectId: project.id,
-              fileId: file.id,
-              scheduleType: type,
-              scope: file.scope ?? scope,
-              discipline: null,
-              drawingRef: null,
-              pageNumber: page.pageNumber,
-              sourceFileName: file.file_name,
-              columns: parsed.columns,
-              rows: parsed.rows
-            });
-            schedulesStored += 1;
-          }
-        }
+        if (type) scheduleJobs.push({ type, content: page.text, pageNumber: page.pageNumber });
       }
     }
 
@@ -116,28 +107,34 @@ export async function processProjectFile(
     for (const sheet of extraction.sheets) {
       const sheetText = `Sheet ${sheet.name}\n${sheet.csv}`;
       addChunks(sheetText, null);
-      if (schedulesStored < MAX_SCHEDULES_PER_FILE) {
+      if (scheduleJobs.length < MAX_SCHEDULES_PER_FILE) {
         const type = detectScheduleType(`${sheet.name} ${sheet.csv}`);
-        if (type) {
-          const parsed = await parseSchedule(type, sheetText, { projectId: project.id });
-          if (parsed.rows.length > 0) {
-            const { scope } = classifyChunk(sheetText, file.file_name, project.measurement_standard);
-            await insertSchedule({
-              projectId: project.id,
-              fileId: file.id,
-              scheduleType: type,
-              scope: file.scope ?? scope,
-              discipline: null,
-              drawingRef: null,
-              pageNumber: null,
-              sourceFileName: file.file_name,
-              columns: parsed.columns,
-              rows: parsed.rows
-            });
-            schedulesStored += 1;
-          }
-        }
+        if (type) scheduleJobs.push({ type, content: sheetText, pageNumber: null });
       }
+    }
+
+    const parsedSchedules = await Promise.all(
+      scheduleJobs.map(async (job) => ({
+        job,
+        parsed: await parseSchedule(job.type, job.content, { projectId: project.id })
+      }))
+    );
+    for (const { job, parsed } of parsedSchedules) {
+      if (parsed.rows.length === 0) continue;
+      const { scope } = classifyChunk(job.content, file.file_name, project.measurement_standard);
+      await insertSchedule({
+        projectId: project.id,
+        fileId: file.id,
+        scheduleType: job.type,
+        scope: file.scope ?? scope,
+        discipline: null,
+        drawingRef: null,
+        pageNumber: job.pageNumber,
+        sourceFileName: file.file_name,
+        columns: parsed.columns,
+        rows: parsed.rows
+      });
+      schedulesStored += 1;
     }
 
     // Image / drawing files: vision-based interpretation (best-effort).
@@ -213,7 +210,8 @@ export async function processProjectFile(
   }
 }
 
-/** Process all source documents for a project that are not yet indexed. */
+/** Process all source documents for a project that are not yet indexed.
+ *  Files run in parallel (small pool) to keep large uploads fast. */
 export async function processProjectDocuments(
   project: Pick<ProjectRow, "id" | "measurement_standard" | "scope">,
   files: ProjectFileRow[],
@@ -223,9 +221,11 @@ export async function processProjectDocuments(
     (f) => f.file_type === "source_document" && (options?.force || f.status !== "indexed")
   );
   let processed = 0;
-  for (const file of targets) {
-    const result = await processProjectFile(project, file);
-    if (result.success) processed += 1;
+  const poolSize = 3;
+  for (let i = 0; i < targets.length; i += poolSize) {
+    const batch = targets.slice(i, i + poolSize);
+    const results = await Promise.all(batch.map((file) => processProjectFile(project, file)));
+    processed += results.filter((r) => r.success).length;
   }
   return { processed };
 }
