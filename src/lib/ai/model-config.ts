@@ -25,6 +25,8 @@ export type AiTask =
   | "complex_section_generation"
   | "final_boq_qa"
   | "excel_export_preparation"
+  | "drawing_interpretation"
+  | "boq_source_validation"
   | "testing";
 
 export type QualityMode = "economy" | "balanced" | "premium";
@@ -83,6 +85,8 @@ const BASE_TASK_ROLE: Record<AiTask, ModelRole> = {
   complex_section_generation: "minimax_m3",
   final_boq_qa: "minimax_m3",
   excel_export_preparation: "gemini_flash_lite",
+  drawing_interpretation: "gemini_flash_lite", // vision-capable
+  boq_source_validation: "gemini_flash_lite",
   testing: "glm_free"
 };
 

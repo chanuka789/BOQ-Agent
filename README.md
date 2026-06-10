@@ -16,6 +16,27 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
   this knowledge when generating new drafts so the output matches your style.
 - U-View BOQ template profile seed based on the supplied Bill No. 1 to Bill No. 8.4 workbooks.
 - Template parser foundation for future BOQ formats.
+- Semantic RAG retrieval (opt-in): set `EMBEDDINGS_ENABLED=true` and a 1536-dim
+  embeddings model; chunks are embedded into the `document_chunks.embedding`
+  (pgvector) column on processing and the agent retrieval ranks by vector cosine
+  distance instead of keywords — same `getAgentContext` interface, no agent
+  changes. Falls back to keyword ranking automatically.
+- Vision drawing interpretation: image/scanned drawing files are sent to a
+  vision-capable model (`VISION_ENABLED`, on by default when an API key is set)
+  to extract title block, notes, legends, schedules and labels into the chunk
+  layer; falls back to a placeholder when disabled.
+- BOQ source validation: the QA agent checks that each generated item's cited
+  source resolves to a real indexed drawing/document (method/spec codes are
+  accepted) and raises a query for any unverified reference.
+- Three-layer document pipeline: (1) Extraction — structured per-page PDF / per-
+  sheet Excel content; (2) Intelligence — chunks classified and tagged by scope,
+  discipline, section code, measurement standard, drawing/page/revision refs, plus
+  schedule detection (door/window/finishes/…) parsed into structured records in
+  `document_schedules`; (3) Retrieval — each section agent receives only the
+  chunks/schedules relevant to its scope and section (not whole documents), with
+  source references for traceability. Falls back to full-text extraction when a
+  project has not been processed yet. Built so semantic search / RAG can replace
+  the keyword ranking without schema changes (the `embedding` column is reserved).
 - App-wide BOQ rule library (`/rules`): shared across all projects and organised
   by measurement-standard section (POMI GP/A–R, NRM2 1–41, NRM1 elements). Each
   rule can be assigned to a section (or left general); section agents read their
@@ -109,6 +130,9 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
    - `database/migration_item_order.sql` (adds `position` to `boq_items` so the
      heading → description → lettered-items order is preserved; also in
      `schema.sql` for fresh installs)
+   - `database/migration_document_intelligence.sql` (three-layer document
+     pipeline: classified/tagged `document_chunks` columns and the
+     `document_schedules` table; also in `schema.sql` for fresh installs)
    - `database/seed_template_profiles.sql`
    - `database/seed_rules.sql`
 5. Create/connect a Vercel Blob store and confirm `BLOB_READ_WRITE_TOKEN` is available in Vercel.

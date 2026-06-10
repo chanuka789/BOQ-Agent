@@ -213,6 +213,53 @@ export type BoqTemplateRow = {
   updated_at: string;
 };
 
+export type DocumentChunkRow = {
+  id: string;
+  project_id: string;
+  file_id: string | null;
+  page_number: number | null;
+  chunk_index: number;
+  document_type: string | null;
+  scope: string | null;
+  discipline: string | null;
+  section: string | null;
+  section_code: string | null;
+  measurement_standard: string | null;
+  trade: string | null;
+  drawing_ref: string | null;
+  revision_ref: string | null;
+  source_file_name: string | null;
+  char_count: number | null;
+  content: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type ScheduleType =
+  | "door"
+  | "window"
+  | "finishes"
+  | "sanitary"
+  | "lighting"
+  | "equipment"
+  | "room_data"
+  | "other";
+
+export type DocumentScheduleRow = {
+  id: string;
+  project_id: string;
+  file_id: string | null;
+  schedule_type: ScheduleType;
+  scope: string | null;
+  discipline: string | null;
+  drawing_ref: string | null;
+  page_number: number | null;
+  source_file_name: string | null;
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+  created_at: string;
+};
+
 export type BoqKnowledgeRow = {
   id: string;
   project_id: string;
