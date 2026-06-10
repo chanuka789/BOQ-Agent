@@ -16,6 +16,14 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
   this knowledge when generating new drafts so the output matches your style.
 - U-View BOQ template profile seed based on the supplied Bill No. 1 to Bill No. 8.4 workbooks.
 - Template parser foundation for future BOQ formats.
+- Lead-coordinator reasoning: before any agent runs, a reasoning pass reads the
+  processed documents and produces a project brief — project name, client,
+  drawing register (each drawing mapped to a scope: finishes / facade / structure
+  / MEP / …), the disciplines present, and a per-scope coverage plan. The brief
+  drives agent assignment, gives each agent its planned coverage and relevant
+  drawings, and powers a coverage check (no missed items) alongside the existing
+  deduplication (no duplicates). Routed to the reasoning model in Balanced/Premium
+  and shown on the Generate screen.
 - Semantic RAG retrieval (opt-in): set `EMBEDDINGS_ENABLED=true` and a 1536-dim
   embeddings model; chunks are embedded into the `document_chunks.embedding`
   (pgvector) column on processing and the agent retrieval ranks by vector cosine
@@ -133,6 +141,8 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
    - `database/migration_document_intelligence.sql` (three-layer document
      pipeline: classified/tagged `document_chunks` columns and the
      `document_schedules` table; also in `schema.sql` for fresh installs)
+   - `database/migration_project_brief.sql` (lead-coordinator project brief per
+     generation; also in `schema.sql` for fresh installs)
    - `database/seed_template_profiles.sql`
    - `database/seed_rules.sql`
 5. Create/connect a Vercel Blob store and confirm `BLOB_READ_WRITE_TOKEN` is available in Vercel.

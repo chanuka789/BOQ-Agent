@@ -600,3 +600,21 @@ alter table boq_generations
 
 alter table boq_generation_agent_logs
   add column if not exists model_name text;
+
+-- ===========================================================================
+-- Project understanding / coordination brief (also in migration_project_brief.sql)
+-- ===========================================================================
+  project_id uuid not null references projects(id) on delete cascade,
+  generation_id uuid references boq_generations(id) on delete cascade,
+  brief jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (generation_id)
+);
+
+create index if not exists idx_project_briefs_project on project_briefs(project_id);
+
+drop trigger if exists project_briefs_set_updated_at on project_briefs;
+create trigger project_briefs_set_updated_at
+before update on project_briefs
+for each row execute function set_updated_at();

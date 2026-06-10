@@ -12,6 +12,12 @@ import { getSql } from "@/lib/db/client";
 import { getProjectFiles } from "@/lib/db/files";
 import { getKnownSourceTokens } from "@/lib/db/documents";
 import { processProjectDocuments } from "@/lib/documents/process";
+import {
+  briefNoteForScope,
+  buildProjectBrief,
+  findCoverageGaps
+} from "@/lib/generation/project-brief";
+import type { ProjectBrief } from "@/lib/db/types";
 import { getGeneration, updateGenerationStatus, upsertAgentLog } from "@/lib/db/generations";
 import { extractFileText } from "@/lib/documents/extractor";
 import type { ProjectFileRow, ProjectRow } from "@/lib/db/types";
@@ -169,10 +175,24 @@ export async function runBoqGeneration(
       console.error("Document processing failed (agents will fall back to raw text):", processError);
     }
 
+    // LEAD COORDINATOR REASONING — understand the project and map drawings/scopes
+    // before any agent runs (project name, client, drawing register + scopes).
     await updateAgentJob(jobId, {
       status: "running",
-      currentStep: "Main coordinator — detecting available scopes from documents",
+      currentStep: "Lead coordinator — understanding project & mapping drawings/scopes",
       progress: 15
+    });
+    let brief: ProjectBrief | null = null;
+    try {
+      brief = await buildProjectBrief({ project, generationId: generationId ?? null, mode });
+    } catch (briefError) {
+      console.error("Project understanding pass failed (continuing):", briefError);
+    }
+
+    await updateAgentJob(jobId, {
+      status: "running",
+      currentStep: "Main coordinator — assigning section agents to mapped scopes",
+      progress: 20
     });
 
     const sql = getSql();
@@ -187,9 +207,11 @@ export async function runBoqGeneration(
       // The main coordinator uses an AI pass to decide present scopes, merged
       // with keyword detection (injected as an extra signal).
       const aiScopes = await detectScopesWithAI(signals, mode, { projectId, generationId });
+      // Prefer the lead-coordinator brief's mapped scopes, merged with detection.
+      const mappedScopes = [...(brief?.scopes_present ?? []), ...aiScopes].join(" ");
       const enrichedSignals =
-        aiScopes.length > 0
-          ? [...signals, { fileName: "coordinator-detection", textSample: aiScopes.join(" ") }]
+        mappedScopes.trim().length > 0
+          ? [...signals, { fileName: "coordinator-detection", textSample: mappedScopes }]
           : signals;
       const selection = selectSectionAgents({
         standard,
@@ -308,6 +330,7 @@ export async function runBoqGeneration(
               fileIds: sourceFileIds,
               trade: agent.title,
               scope: agent.scope,
+              briefNote: briefNoteForScope(brief, agent.scope),
               agent
             })
           });
@@ -465,6 +488,16 @@ export async function runBoqGeneration(
       }))
     ];
 
+    // Coverage check (no missed items): compare the lead-coordinator coverage
+    // plan against what the agents produced and flag gaps.
+    const coverageGaps = brief
+      ? findCoverageGaps(
+          brief,
+          items.filter((i) => !removed.has(i.id)).map((i) => ({ trade: i.trade, description: i.description }))
+        )
+      : [];
+    if (coverageGaps.length > 0) qaQueries.push(...coverageGaps);
+
     // Final LLM QA review (routed to the QA model) — best-effort, bounded.
     let llmQaCount = 0;
     if (measured.length > 0) {
@@ -513,7 +546,7 @@ export async function runBoqGeneration(
         status: "completed",
         progress: 100,
         modelName: qaModel,
-        statusText: `Removed ${duplicatesToDelete.length} duplicate(s); flagged ${missingUnit.length} unit, ${missingRef.length} missing-ref, ${unverifiedRef.length} unverified-source and ${llmQaCount} review issue(s) as queries.`,
+        statusText: `Removed ${duplicatesToDelete.length} duplicate(s); flagged ${missingUnit.length} unit, ${missingRef.length} missing-ref, ${unverifiedRef.length} unverified-source, ${coverageGaps.length} coverage-gap and ${llmQaCount} review issue(s) as queries.`,
         queriesCount: qaQueries.length
       });
     }
