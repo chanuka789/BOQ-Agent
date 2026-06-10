@@ -12,6 +12,10 @@ import { createGeneration } from "@/lib/db/generations";
 import { getProjectTemplates } from "@/lib/db/templates";
 import { assertProjectAccess } from "@/lib/db/projects";
 import { requireCurrentAppUser } from "@/lib/db/users";
+import {
+  getInternalWorkerSecret,
+  isInternalWorkerSecretConfigured
+} from "@/lib/generation/internal-worker-secret";
 import { runBoqGeneration } from "@/lib/generation/run-boq-generation";
 import type { ProjectRow } from "@/lib/db/types";
 
@@ -20,6 +24,12 @@ async function triggerCoordinator(params: {
   jobId: string;
   generationId: string;
 }) {
+  if (!isInternalWorkerSecretConfigured()) {
+    console.warn("INTERNAL_WORKER_SECRET is not configured; running coordinator inline.");
+    await runBoqGeneration(params.projectId, params.jobId, params.generationId);
+    return;
+  }
+
   let baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   try {
     const host = (await headers()).get("host");
@@ -27,7 +37,7 @@ async function triggerCoordinator(params: {
   } catch {
     /* use default */
   }
-  const secret = process.env.INTERNAL_WORKER_SECRET || "boq-agent-secret-123";
+  const secret = getInternalWorkerSecret();
   try {
     const res = await fetch(`${baseUrl}/api/generate/run`, {
       method: "POST",

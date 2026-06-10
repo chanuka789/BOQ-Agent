@@ -1,7 +1,6 @@
 import "server-only";
 
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 import { selectSectionAgents, type FileSignal, type SectionAgent } from "@/lib/agents/sections";
 import { SCOPES } from "@/lib/agents/catalog";
 import { isQualityMode, type QualityMode } from "@/lib/ai/model-config";
@@ -25,6 +24,8 @@ import {
   upsertAgentLog
 } from "@/lib/db/generations";
 import { extractFileText } from "@/lib/documents/extractor";
+import { sourceReferencesMatch } from "@/lib/documents/source-reference";
+import { runSectionAgent, type SectionAgentResult } from "@/lib/generation/run-section-agent";
 import type { ProjectFileRow, ProjectRow } from "@/lib/db/types";
 
 /**
@@ -64,18 +65,6 @@ async function detectScopesWithAI(
     return [];
   }
 }
-
-type WorkerResult = {
-  success: boolean;
-  trade: string;
-  model?: string;
-  reasoning?: string;
-  itemsCount: number;
-  queriesCount: number;
-  assumptionsCount: number;
-  estimatedCostUsd: number;
-  error?: string;
-};
 
 async function getProjectById(projectId: string): Promise<ProjectRow | null> {
   const sql = getSql();
@@ -183,6 +172,64 @@ function buildCustomAgents(trades: string[], projectScope: string): SectionAgent
     scope: projectScope,
     units: []
   }));
+}
+
+const DUPLICATE_STOPWORDS = new Set([
+  "and",
+  "for",
+  "the",
+  "with",
+  "including",
+  "include",
+  "includes",
+  "complete",
+  "supply",
+  "install",
+  "installed",
+  "provide",
+  "fix",
+  "apply",
+  "all",
+  "per",
+  "as",
+  "drawings",
+  "specifications",
+  "specification",
+  "works",
+  "work",
+  "item",
+  "ditto"
+]);
+
+function duplicateTokens(description: string): Set<string> {
+  const normalized = description
+    .toLowerCase()
+    .replace(/\baluminium\b/g, "aluminum")
+    .replace(/\bglazed\b/g, "glazing")
+    .replace(/[^a-z0-9]+/g, " ");
+  const tokens = normalized
+    .split(/\s+/)
+    .map((token) => token.replace(/s$/, ""))
+    .filter((token) => token.length > 2 && !DUPLICATE_STOPWORDS.has(token));
+  return new Set(tokens);
+}
+
+function duplicateSimilarity(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let intersection = 0;
+  for (const token of a) {
+    if (b.has(token)) intersection += 1;
+  }
+  return intersection / Math.max(a.size, b.size);
+}
+
+function normalizedDuplicateKey(item: {
+  trade: string;
+  description: string;
+  unit: string | null;
+}): string {
+  const tokens = Array.from(duplicateTokens(item.description)).sort().join(" ");
+  return `${item.trade.toLowerCase().trim()}|${(item.unit ?? "").toLowerCase().trim()}|${tokens}`;
 }
 
 export async function runBoqGeneration(
@@ -382,47 +429,27 @@ export async function runBoqGeneration(
       progress: 30
     });
 
-    // ── Worker base URL & secret ──────────────────────────────────────────────
-    let baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    try {
-      const host = (await headers()).get("host");
-      if (host) {
-        const protocol = host.includes("localhost") ? "http" : "https";
-        baseUrl = `${protocol}://${host}`;
-      }
-    } catch {
-      /* use default */
-    }
-    const secret = process.env.INTERNAL_WORKER_SECRET || "boq-agent-secret-123";
-    const concurrency = Number(process.env.GENERATION_CONCURRENCY || 5);
+    const configuredConcurrency = Number(process.env.GENERATION_CONCURRENCY || 3);
+    const concurrency = Math.max(1, Math.min(6, Number.isFinite(configuredConcurrency) ? configuredConcurrency : 3));
     const sourceFileIds = sourceFiles.map((f) => f.id);
 
     let completedCount = 0;
 
-    const results = await runPool<SectionAgent, WorkerResult>(
+    const results = await runPool<SectionAgent, SectionAgentResult>(
       runAgents,
       concurrency,
       async (agent) => {
         try {
-          const res = await fetch(`${baseUrl}/api/generate/worker`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-worker-secret": secret },
-            body: JSON.stringify({
-              projectId,
-              jobId,
-              generationId,
-              qualityMode: mode,
-              fileIds: sourceFileIds,
-              trade: agent.title,
-              scope: agent.scope,
-              briefNote: briefNoteForScope(brief, agent.scope),
-              agent
-            })
+          const data = await runSectionAgent({
+            projectId,
+            generationId,
+            qualityMode: mode,
+            fileIds: sourceFileIds,
+            trade: agent.title,
+            scope: agent.scope,
+            briefNote: briefNoteForScope(brief, agent.scope),
+            agent
           });
-          if (!res.ok) {
-            throw new Error(`${agent.label} failed: ${await res.text()}`);
-          }
-          const data = (await res.json()) as WorkerResult;
 
           if (generationId) {
             await upsertAgentLog({
@@ -541,12 +568,32 @@ export async function runBoqGeneration(
       source_reference: string | null;
     }>;
 
-    const seen = new Set<string>();
+    const seen = new Map<string, string>();
+    const priorByTrade = new Map<string, Array<{ id: string; tokens: Set<string>; unit: string | null }>>();
     const duplicatesToDelete: string[] = [];
     for (const item of items) {
-      const key = `${item.trade.toLowerCase()}|${item.description.toLowerCase().trim()}`;
-      if (seen.has(key)) duplicatesToDelete.push(item.id);
-      else seen.add(key);
+      const key = normalizedDuplicateKey(item);
+      const previousId = seen.get(key);
+      if (previousId) {
+        duplicatesToDelete.push(item.id);
+        continue;
+      }
+      seen.set(key, item.id);
+
+      const tradeKey = item.trade.toLowerCase().trim();
+      const tokens = duplicateTokens(item.description);
+      const prior = priorByTrade.get(tradeKey) ?? [];
+      const nearDuplicate = prior.find(
+        (p) =>
+          (p.unit ?? "") === (item.unit ?? "") &&
+          duplicateSimilarity(p.tokens, tokens) >= 0.88
+      );
+      if (nearDuplicate) {
+        duplicatesToDelete.push(item.id);
+      } else {
+        prior.push({ id: item.id, tokens, unit: item.unit });
+        priorByTrade.set(tradeKey, prior);
+      }
     }
     if (duplicatesToDelete.length > 0) {
       await sql`delete from boq_items where id = any(${duplicatesToDelete})`;
@@ -573,7 +620,7 @@ export async function runBoqGeneration(
             const ref = (i.source_reference ?? "").trim().toLowerCase();
             if (!ref) return false; // already covered by missingRef
             if (standardRefPattern.test(ref)) return false; // method/spec code is fine
-            return !knownTokens.some((t) => ref.includes(t) || t.includes(ref));
+            return !knownTokens.some((t) => sourceReferencesMatch(ref, t));
           })
         : [];
 
@@ -621,7 +668,7 @@ export async function runBoqGeneration(
         }>({
           task: "final_boq_qa",
           mode,
-          reasoning: true,
+          reasoning: false,
           maxTokens: 2000,
           context: { projectId, generationId, agentId: "qa-agent" },
           messages: [
@@ -639,9 +686,6 @@ export async function runBoqGeneration(
         }));
         llmQaCount = reviewed.length;
         qaQueries.push(...reviewed);
-        if (review.reasoning) {
-          await think("qa-agent", "BOQ QA Agent", "qa", review.reasoning, "reasoning");
-        }
       } catch (qaError) {
         console.error("LLM final QA failed (non-fatal):", qaError);
       }

@@ -78,7 +78,7 @@ export async function buildProjectBrief({
     const result = await runAiJson<ProjectBrief>({
       task: "project_understanding",
       mode,
-      reasoning: true,
+      reasoning: false,
       maxTokens: 3500,
       context: { projectId: project.id, generationId, agentId: "coordinator" },
       messages: [
@@ -113,17 +113,6 @@ export async function buildProjectBrief({
     `;
 
     if (generationId) {
-      if (result.reasoning) {
-        await addThought({
-          generationId,
-          projectId: project.id,
-          agentId: "coordinator",
-          agentLabel: "Lead Coordinator",
-          phase: "coordinator",
-          kind: "reasoning",
-          thought: result.reasoning
-        });
-      }
       const scopesText = (brief.scopes_present ?? []).join(", ") || "the declared scope";
       await addThought({
         generationId,

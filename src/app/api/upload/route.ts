@@ -135,6 +135,8 @@ export async function POST(request: Request) {
             "application/vnd.ms-excel",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "application/vnd.ms-excel.sheet.macroEnabled.12",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "image/png",
             "image/jpeg"
           ],
@@ -172,7 +174,7 @@ export async function POST(request: Request) {
               projectId: parsed.projectId,
               file,
               parsedStructure: {
-                status: "queued_for_parsing",
+                status: "uploaded",
                 source: "Vercel Blob upload callback"
               }
             });

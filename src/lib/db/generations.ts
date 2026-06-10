@@ -8,7 +8,7 @@ import type {
   GenerationStatus
 } from "@/lib/db/types";
 
-/** Append a reasoning/thinking entry to the live generation feed. Best-effort. */
+/** Append an audit-safe decision/status entry to the live generation feed. Best-effort. */
 export async function addThought(input: {
   generationId: string;
   projectId: string;

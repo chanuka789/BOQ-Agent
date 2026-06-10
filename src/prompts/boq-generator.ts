@@ -141,7 +141,7 @@ const outputFormat = `
 OUTPUT FORMAT — strict JSON, no text outside the object
 ===========================================================
 {
-  "reasoning": "1-3 sentences, first person, on what you found in the documents for your section and the key measurement decisions you made (units, what you included/excluded). This is shown live to the QS.",
+  "decision_summary": "1-3 audit-safe sentences on what you found in the documents for your section and the key measurement decisions you made (units, what you included/excluded). Do not include hidden chain-of-thought.",
   "boq_items": [
     {
       "item_no": "A",

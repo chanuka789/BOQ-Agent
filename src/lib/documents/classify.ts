@@ -1,5 +1,6 @@
 import { SCOPES, resolveScope } from "@/lib/agents/catalog";
 import { getSectionAgents } from "@/lib/agents/sections";
+import { normalizeSourceReference } from "@/lib/documents/source-reference";
 import type { ScheduleType } from "@/lib/db/types";
 
 export type ChunkClassification = {
@@ -69,11 +70,17 @@ export function extractDrawingRef(text: string): string | null {
   const head = text.slice(0, 600);
   if (/(drawing|dwg|sheet)\s*(no\.?|number|#|:)/i.test(head)) {
     const m = head.match(DRAWING_REF);
-    if (m) return m[1].replace(/[_ ]/g, "-");
+    if (m) return normalizeDrawingRef(m[1]);
   }
   // Generic discipline-prefixed sheet code anywhere near the top.
   const m = head.match(/\b([ASMEPL][-_]\d{2,4}[A-Z]?)\b/);
-  return m ? m[1].replace(/[_ ]/g, "-") : null;
+  return m ? normalizeDrawingRef(m[1]) : null;
+}
+
+function normalizeDrawingRef(value: string): string {
+  const compact = normalizeSourceReference(value).toUpperCase();
+  const match = compact.match(/^([A-Z]{1,4})(\d{2,5}[A-Z]?)$/);
+  return match ? `${match[1]}-${match[2]}` : value.replace(/[_ ]/g, "-").toUpperCase();
 }
 
 export function extractRevision(text: string): string | null {

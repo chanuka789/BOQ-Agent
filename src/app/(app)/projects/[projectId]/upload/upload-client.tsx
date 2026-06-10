@@ -77,16 +77,10 @@ export function UploadClient({ projectId }: { projectId: string }) {
         );
 
         // Pre-process into the structured knowledge layer now, so generation
-        // starts instantly later. Delayed so the blob callback can record the
-        // file first; fire-and-forget (generation re-checks as a fallback).
+        // starts quickly later. Retry because the blob callback may record the
+        // file a moment after the browser upload promise resolves.
         if (role === "source_document") {
-          setTimeout(() => {
-            void fetch("/api/documents/process", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ projectId })
-            }).catch(() => {});
-          }, 4000);
+          void triggerDocumentProcessing(projectId);
         }
       } catch (error) {
         setStates((current) =>
@@ -152,7 +146,7 @@ export function UploadClient({ projectId }: { projectId: string }) {
               Drop files here or browse
             </span>
             <span className="mt-2 text-xs text-[var(--muted)]">
-              PDF, Excel, PNG, JPG · up to {formatBytes(500 * 1024 * 1024)}
+              PDF, Word, Excel, PNG, JPG · up to {formatBytes(500 * 1024 * 1024)}
             </span>
           </span>
         </button>
@@ -162,7 +156,7 @@ export function UploadClient({ projectId }: { projectId: string }) {
           type="file"
           className="hidden"
           multiple
-          accept=".pdf,.xlsx,.xls,.xlsm,.png,.jpg,.jpeg"
+          accept=".pdf,.doc,.docx,.xlsx,.xls,.xlsm,.png,.jpg,.jpeg"
           onChange={(event) => void handleFiles(event.target.files)}
         />
 
@@ -206,6 +200,23 @@ export function UploadClient({ projectId }: { projectId: string }) {
       </div>
     </section>
   );
+}
+
+async function triggerDocumentProcessing(projectId: string) {
+  const delays = [800, 2500, 6000];
+  for (const delay of delays) {
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    try {
+      const response = await fetch("/api/documents/process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId })
+      });
+      if (response.ok) return;
+    } catch {
+      /* retry */
+    }
+  }
 }
 
 async function assertUploadReady(projectId: string) {

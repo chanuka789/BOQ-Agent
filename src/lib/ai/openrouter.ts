@@ -16,6 +16,16 @@ export type OpenRouterResult = {
   usage: { promptTokens: number; completionTokens: number; totalTokens: number };
 };
 
+export class OpenRouterError extends Error {
+  status?: number;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = "OpenRouterError";
+    this.status = status;
+  }
+}
+
 type RawResponse = {
   choices?: Array<{ message?: { content?: string; reasoning?: string } }>;
   usage?: {
@@ -73,10 +83,27 @@ export async function callOpenRouter({
     })
   });
 
-  const json = (await response.json()) as RawResponse;
+  const responseText = await response.text();
+  let json: RawResponse = {};
+  if (responseText.trim()) {
+    try {
+      json = JSON.parse(responseText) as RawResponse;
+    } catch {
+      if (!response.ok) {
+        throw new OpenRouterError(
+          `OpenRouter request failed (${response.status}): ${responseText.slice(0, 500)}`,
+          response.status
+        );
+      }
+      throw new Error("OpenRouter returned a non-JSON response");
+    }
+  }
 
   if (!response.ok) {
-    throw new Error(json.error?.message ?? `OpenRouter request failed (${response.status})`);
+    throw new OpenRouterError(
+      json.error?.message ?? `OpenRouter request failed (${response.status})`,
+      response.status
+    );
   }
 
   const content = json.choices?.[0]?.message?.content;

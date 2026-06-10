@@ -15,21 +15,24 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
   inclusions/exclusions, formatting, and summary/page structure). The agents read
   this knowledge when generating new drafts so the output matches your style.
 - U-View BOQ template profile seed based on the supplied Bill No. 1 to Bill No. 8.4 workbooks.
-- Template parser foundation for future BOQ formats.
-- Lead-coordinator reasoning: before any agent runs, a reasoning pass reads the
+- BOQ template parser: uploaded Excel templates are parsed for work sheets,
+  header rows, item/description/unit/quantity/rate/amount columns, summary/index
+  sheets, detected units, and style notes used by generation.
+- Lead-coordinator project understanding: before any agent runs, a coordination pass reads the
   processed documents and produces a project brief — project name, client,
   drawing register (each drawing mapped to a scope: finishes / facade / structure
   / MEP / …), the disciplines present, and a per-scope coverage plan. The brief
   drives agent assignment, gives each agent its planned coverage and relevant
   drawings, and powers a coverage check (no missed items) alongside the existing
-  deduplication (no duplicates). Routed to the reasoning model in Balanced/Premium
-  and shown on the Generate screen.
+  deduplication (no duplicates). Shown as an audit-safe decision log on the
+  Generate screen.
 - Semantic RAG retrieval (opt-in): set `EMBEDDINGS_ENABLED=true` and a 1536-dim
   embeddings model; chunks are embedded into the `document_chunks.embedding`
   (pgvector) column on processing and the agent retrieval ranks by vector cosine
   distance instead of keywords — same `getAgentContext` interface, no agent
   changes. Falls back to keyword ranking automatically.
-- Vision drawing interpretation: image/scanned drawing files are sent to a
+- Vision drawing interpretation: image drawings and scanned/image-based PDF
+  pages (best-effort render of the first `PDF_VISION_MAX_PAGES`) are sent to a
   vision-capable model (`VISION_ENABLED`, on by default when an API key is set)
   to extract title block, notes, legends, schedules and labels into the chunk
   layer; falls back to a placeholder when disabled.
@@ -103,7 +106,8 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
   Balanced / Premium, chosen per generation). Roles: GLM 4.7 Flash (bulk),
   GLM 4.5 Air Free (testing), Gemini 2.5 Flash-Lite (main cheap BOQ model),
   MiniMax M3 (premium), Qwen3 Coder (optional). Fallback chain on failure, every
-  call logged to `ai_model_usage_logs` with token/cost, and the active model
+  call logged to `ai_model_usage_logs` with token/cost, transient 429/5xx
+  retries before fallback, and the active model
   shown per agent on the Generate screen. Configure model IDs and the default
   mode entirely via environment variables; review config and usage/cost at
   `/settings/ai`.
@@ -146,11 +150,12 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
    - `database/seed_template_profiles.sql`
    - `database/seed_rules.sql`
 5. Create/connect a Vercel Blob store and confirm `BLOB_READ_WRITE_TOKEN` is available in Vercel.
-6. Create an OpenRouter API key and set:
+6. Generate and set a long server-only `INTERNAL_WORKER_SECRET`.
+7. Create an OpenRouter API key and set:
    - `OPENROUTER_API_KEY`
    - `OPENROUTER_MODEL=minimax/minimax-m3` or the current MiniMax M3 model id shown in OpenRouter.
    - optional `OPENROUTER_SITE_URL` and `OPENROUTER_APP_NAME`.
-7. Deploy on Vercel.
+8. Deploy on Vercel.
 
 ## BOQ Template Support
 

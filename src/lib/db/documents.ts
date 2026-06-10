@@ -1,4 +1,5 @@
 import { getSql } from "@/lib/db/client";
+import { sourceReferenceTokens } from "@/lib/documents/source-reference";
 import type {
   DocumentChunkRow,
   DocumentScheduleRow,
@@ -172,9 +173,14 @@ export async function getRelevantChunks({
   const candidates = (await sql`
     select * from document_chunks
     where project_id = ${projectId}
-      and (scope = ${scope} or scope is null or scope = 'General')
+      and (
+        scope = ${scope}
+        or scope is null
+        or scope = 'General'
+        or (${sectionCode ?? null}::text is not null and section_code = ${sectionCode ?? null})
+      )
     order by created_at
-    limit 400
+    limit 600
   `) as DocumentChunkRow[];
 
   if (candidates.length === 0) return [];
@@ -247,11 +253,11 @@ export async function getKnownSourceTokens(projectId: string): Promise<string[]>
 
   const tokens = new Set<string>();
   for (const r of chunkRows) {
-    if (r.drawing_ref) tokens.add(r.drawing_ref.toLowerCase());
-    if (r.source_file_name) tokens.add(r.source_file_name.toLowerCase());
+    for (const token of sourceReferenceTokens(r.drawing_ref)) tokens.add(token);
+    for (const token of sourceReferenceTokens(r.source_file_name)) tokens.add(token);
   }
   for (const r of scheduleRows) {
-    if (r.source_file_name) tokens.add(r.source_file_name.toLowerCase());
+    for (const token of sourceReferenceTokens(r.source_file_name)) tokens.add(token);
   }
   return Array.from(tokens);
 }

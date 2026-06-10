@@ -322,7 +322,7 @@ function ReasoningFeed({
     <div className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4">
       <div className="mb-3 flex items-center gap-2">
         <h3 className="text-sm font-extrabold text-[var(--foreground)]">
-          Agent reasoning {live ? "· live" : ""}
+          Agent decision log {live ? "· live" : ""}
         </h3>
         {live ? (
           <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-[var(--success)]" />
@@ -340,7 +340,7 @@ function ReasoningFeed({
                 {t.agent_label}
                 {t.kind === "reasoning" ? (
                   <span className="ml-2 rounded bg-[var(--primary-soft)] px-1.5 py-0.5 text-[10px] font-bold uppercase text-[var(--primary)]">
-                    thinking
+                    summary
                   </span>
                 ) : null}
               </p>

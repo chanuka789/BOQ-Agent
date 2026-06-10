@@ -1,5 +1,6 @@
 import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
+import { verifyInternalWorkerSecret } from "@/lib/generation/internal-worker-secret";
 import { runBoqGeneration } from "@/lib/generation/run-boq-generation";
 
 // The coordinator does heavier work than a server action's lifetime allows
@@ -10,10 +11,14 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
-  const secret = req.headers.get("x-worker-secret");
-  const expected = process.env.INTERNAL_WORKER_SECRET || "boq-agent-secret-123";
-  if (secret !== expected) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    verifyInternalWorkerSecret(req.headers.get("x-worker-secret"));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unauthorized";
+    return NextResponse.json(
+      { error: message },
+      { status: message === "Unauthorized" ? 401 : 500 }
+    );
   }
 
   const { projectId, jobId, generationId } = await req.json();

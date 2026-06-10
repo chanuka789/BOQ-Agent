@@ -3,10 +3,11 @@ import "server-only";
 // @ts-ignore - pdf-parse has no bundled types
 import pdf from "pdf-parse";
 import * as XLSX from "xlsx";
+import { extractTextFromDocx } from "@/lib/documents/docx";
 
 export type ExtractedPage = { pageNumber: number; text: string };
 export type ExtractedSheet = { name: string; csv: string; rows: string[][] };
-export type ExtractionKind = "pdf" | "excel" | "image" | "text" | "other";
+export type ExtractionKind = "pdf" | "excel" | "word" | "image" | "text" | "other";
 
 export type StructuredExtraction = {
   kind: ExtractionKind;
@@ -20,6 +21,12 @@ function detectKind(mime: string, name: string): ExtractionKind {
   const n = name.toLowerCase();
   if (ct.includes("spreadsheet") || ct.includes("excel") || /\.(xlsx|xls|xlsm|csv)$/.test(n))
     return "excel";
+  if (
+    ct.includes("wordprocessingml") ||
+    ct.includes("msword") ||
+    /\.(docx|doc)$/.test(n)
+  )
+    return "word";
   if (ct.includes("pdf") || n.endsWith(".pdf")) return "pdf";
   if (ct.startsWith("image/") || /\.(png|jpe?g|webp|gif|tiff?)$/.test(n)) return "image";
   if (ct.includes("text") || n.endsWith(".txt")) return "text";
@@ -106,6 +113,13 @@ export async function extractStructured(file: {
       const pages = await extractPdfPages(buffer);
       const rawText = pages.map((p) => p.text).join("\n\n");
       return { kind, pages, sheets: [], rawText };
+    }
+
+    if (kind === "word") {
+      const rawText = file.file_name.toLowerCase().endsWith(".docx")
+        ? await extractTextFromDocx(buffer)
+        : buffer.toString("utf-8").replace(/[^\x20-\x7E\n\r]/g, " ");
+      return { kind, pages: [{ pageNumber: 1, text: rawText }], sheets: [], rawText };
     }
 
     if (kind === "text") {

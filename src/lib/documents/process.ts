@@ -12,6 +12,7 @@ import { classifyChunk, detectScheduleType } from "@/lib/documents/classify";
 import { extractStructured } from "@/lib/documents/extract";
 import { parseSchedule } from "@/lib/documents/schedules";
 import { interpretDrawing } from "@/lib/documents/vision";
+import { interpretPdfDrawingPages } from "@/lib/documents/pdf-vision";
 import { embedTexts, isEmbeddingsEnabled } from "@/lib/ai/embeddings";
 import type { ProjectFileRow, ProjectRow } from "@/lib/db/types";
 
@@ -110,6 +111,37 @@ export async function processProjectFile(
       if (scheduleJobs.length < MAX_SCHEDULES_PER_FILE) {
         const type = detectScheduleType(`${sheet.name} ${sheet.csv}`);
         if (type) scheduleJobs.push({ type, content: sheetText, pageNumber: null });
+      }
+    }
+
+    if (chunks.length === 0 && extraction.kind === "pdf") {
+      const cls = classifyChunk(file.file_name, file.file_name, project.measurement_standard);
+      const interpreted = await interpretPdfDrawingPages(file, { projectId: project.id });
+      if (interpreted) {
+        addChunks(interpreted, 1);
+        if (scheduleJobs.length < MAX_SCHEDULES_PER_FILE) {
+          const type = detectScheduleType(interpreted);
+          if (type) scheduleJobs.push({ type, content: interpreted, pageNumber: 1 });
+        }
+      } else {
+        chunks.push({
+          pageNumber: 1,
+          chunkIndex: chunkIndex++,
+          documentType: file.document_type ?? "drawing",
+          scope: file.scope ?? cls.scope,
+          discipline: cls.discipline,
+          section: null,
+          sectionCode: cls.sectionCode,
+          measurementStandard: project.measurement_standard,
+          trade: null,
+          drawingRef: cls.drawingRef,
+          revisionRef: cls.revisionRef,
+          sourceFileName: file.file_name,
+          content:
+            `[Scanned or image-based PDF: ${file.file_name}] No selectable text was extracted. ` +
+            "PDF page rendering/OCR was unavailable or failed; convert this drawing/specification PDF to page images for full AI measurement context.",
+          metadata: { kind: "pdf", requiresOcr: true }
+        });
       }
     }
 

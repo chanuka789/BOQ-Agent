@@ -604,6 +604,8 @@ alter table boq_generation_agent_logs
 -- ===========================================================================
 -- Project understanding / coordination brief (also in migration_project_brief.sql)
 -- ===========================================================================
+create table if not exists project_briefs (
+  id uuid primary key default gen_random_uuid(),
   project_id uuid not null references projects(id) on delete cascade,
   generation_id uuid references boq_generations(id) on delete cascade,
   brief jsonb not null default '{}'::jsonb,
@@ -622,6 +624,8 @@ for each row execute function set_updated_at();
 -- ===========================================================================
 -- Live agent reasoning stream (also in migration_agent_thoughts.sql)
 -- ===========================================================================
+create table if not exists boq_generation_thoughts (
+  id uuid primary key default gen_random_uuid(),
   generation_id uuid not null references boq_generations(id) on delete cascade,
   project_id uuid not null references projects(id) on delete cascade,
   agent_id text not null,

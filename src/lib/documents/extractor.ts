@@ -1,6 +1,7 @@
 // @ts-ignore
 import pdf from "pdf-parse";
 import * as XLSX from "xlsx";
+import { extractTextFromDocx } from "@/lib/documents/docx";
 
 export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   try {
@@ -27,6 +28,13 @@ export async function extractTextFromExcel(buffer: Buffer): Promise<string> {
   }
 }
 
+export async function extractTextFromWord(buffer: Buffer, fileName: string): Promise<string> {
+  if (fileName.toLowerCase().endsWith(".docx")) {
+    return extractTextFromDocx(buffer);
+  }
+  return buffer.toString("utf-8").replace(/[^\x20-\x7E\n\r]/g, " ").replace(/\s+/g, " ").trim();
+}
+
 export async function extractFileText(
   storageUrl: string,
   mimeType: string | null,
@@ -47,6 +55,18 @@ export async function extractFileText(
       name.endsWith(".xls")
     ) {
       return await extractTextFromExcel(buffer);
+    }
+
+    if (
+      ct.includes("wordprocessingml") ||
+      ct.includes("msword") ||
+      name.endsWith(".docx") ||
+      name.endsWith(".doc")
+    ) {
+      const parsed = await extractTextFromWord(buffer, fileName);
+      return parsed.trim().length > 0
+        ? parsed
+        : `[Word document: ${fileName} - no text extracted]`;
     }
 
     if (ct.includes("pdf") || name.endsWith(".pdf")) {

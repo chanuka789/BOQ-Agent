@@ -1,7 +1,7 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Migration: live agent reasoning stream
 --   * boq_generation_thoughts is an append-only feed of the coordinator and
---     agents' reasoning/thinking, shown live on the Generate screen while a BOQ
+--     agents' audit-safe decision/status notes, shown live on the Generate screen while a BOQ
 --     is being generated.
 -- Additive and idempotent.
 -- ─────────────────────────────────────────────────────────────────────────────

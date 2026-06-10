@@ -2,7 +2,12 @@ import "server-only";
 
 import { DEFAULT_QUALITY_MODE, estimateCost, type AiTask, type QualityMode } from "@/lib/ai/model-config";
 import { modelChain } from "@/lib/ai/model-router";
-import { callOpenRouter, parseStrictJson, type AiMessage } from "@/lib/ai/openrouter";
+import {
+  callOpenRouter,
+  OpenRouterError,
+  parseStrictJson,
+  type AiMessage
+} from "@/lib/ai/openrouter";
 import { logAiUsage } from "@/lib/db/ai-usage";
 
 export type AiRunContext = {
@@ -47,58 +52,71 @@ export async function runAiJson<T>({
   }
 
   let lastError: unknown = null;
+  let loggedAttempt = 0;
+  const retriesPerModel = Math.max(1, Math.min(3, Number(process.env.AI_MODEL_RETRIES || 2)));
 
-  for (let attempt = 0; attempt < chain.length; attempt++) {
-    const model = chain[attempt];
-    const startedAt = Date.now();
-    try {
-      const result = await callOpenRouter({ model, messages, temperature, maxTokens, reasoning });
-      const data = parseStrictJson<T>(result.content);
+  for (const model of chain) {
+    for (let modelAttempt = 1; modelAttempt <= retriesPerModel; modelAttempt++) {
+      const startedAt = Date.now();
+      loggedAttempt += 1;
+      try {
+        const result = await callOpenRouter({ model, messages, temperature, maxTokens, reasoning });
+        const data = parseStrictJson<T>(result.content);
 
-      await logAiUsage({
-        projectId: context?.projectId,
-        generationId: context?.generationId,
-        agentId: context?.agentId,
-        taskType: task,
-        modelName: result.model,
-        qualityMode: mode,
-        attempt: attempt + 1,
-        inputTokens: result.usage.promptTokens,
-        outputTokens: result.usage.completionTokens,
-        estimatedCost: estimateCost(model, result.usage.promptTokens, result.usage.completionTokens),
-        status: "success",
-        durationMs: Date.now() - startedAt
-      });
+        await logAiUsage({
+          projectId: context?.projectId,
+          generationId: context?.generationId,
+          agentId: context?.agentId,
+          taskType: task,
+          modelName: result.model,
+          qualityMode: mode,
+          attempt: loggedAttempt,
+          inputTokens: result.usage.promptTokens,
+          outputTokens: result.usage.completionTokens,
+          estimatedCost: estimateCost(model, result.usage.promptTokens, result.usage.completionTokens),
+          status: "success",
+          durationMs: Date.now() - startedAt
+        });
 
-      return {
-        data,
-        reasoning: result.reasoning,
-        model: result.model,
-        usage: result.usage,
-        attempts: attempt + 1
-      };
-    } catch (error) {
-      lastError = error;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`AI task "${task}" failed on ${model} (attempt ${attempt + 1}):`, message);
+        return {
+          data,
+          reasoning: result.reasoning,
+          model: result.model,
+          usage: result.usage,
+          attempts: loggedAttempt
+        };
+      } catch (error) {
+        lastError = error;
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(
+          `AI task "${task}" failed on ${model} (attempt ${modelAttempt}/${retriesPerModel}):`,
+          message
+        );
 
-      await logAiUsage({
-        projectId: context?.projectId,
-        generationId: context?.generationId,
-        agentId: context?.agentId,
-        taskType: task,
-        modelName: model,
-        qualityMode: mode,
-        attempt: attempt + 1,
-        inputTokens: 0,
-        outputTokens: 0,
-        estimatedCost: 0,
-        status: "failed",
-        errorMessage: message,
-        durationMs: Date.now() - startedAt
-      });
-      // try the next model in the chain
+        await logAiUsage({
+          projectId: context?.projectId,
+          generationId: context?.generationId,
+          agentId: context?.agentId,
+          taskType: task,
+          modelName: model,
+          qualityMode: mode,
+          attempt: loggedAttempt,
+          inputTokens: 0,
+          outputTokens: 0,
+          estimatedCost: 0,
+          status: "failed",
+          errorMessage: message,
+          durationMs: Date.now() - startedAt
+        });
+
+        if (!isTransientAiError(error) || modelAttempt === retriesPerModel) {
+          break;
+        }
+
+        await sleep(600 * modelAttempt);
+      }
     }
+    // try the next model in the chain
   }
 
   throw new Error(
@@ -106,4 +124,15 @@ export async function runAiJson<T>({
       lastError instanceof Error ? lastError.message : String(lastError)
     }`
   );
+}
+
+function isTransientAiError(error: unknown): boolean {
+  if (error instanceof OpenRouterError) {
+    return error.status === 408 || error.status === 409 || error.status === 429 || (error.status ?? 0) >= 500;
+  }
+  return error instanceof Error && error.name === "TimeoutError";
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
