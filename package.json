@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "@clerk/nextjs": "latest",
-    "@napi-rs/canvas": "latest",
     "@neondatabase/serverless": "^1.0.2",
     "@vercel/blob": "latest",
     "clsx": "latest",
@@ -20,7 +19,6 @@
     "mammoth": "latest",
     "next": "^16.1.6",
     "pdf-parse": "^1.1.1",
-    "pdfjs-dist": "latest",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "xlsx": "latest",

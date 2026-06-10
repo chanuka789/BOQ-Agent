@@ -31,11 +31,11 @@ The app follows `AI_BOQ_Agent_Build_Plan.md` and the supplied U-View Excel BOQ t
   (pgvector) column on processing and the agent retrieval ranks by vector cosine
   distance instead of keywords — same `getAgentContext` interface, no agent
   changes. Falls back to keyword ranking automatically.
-- Vision drawing interpretation: image drawings and scanned/image-based PDF
-  pages (best-effort render of the first `PDF_VISION_MAX_PAGES`) are sent to a
+- Vision drawing interpretation: image drawings are sent to a
   vision-capable model (`VISION_ENABLED`, on by default when an API key is set)
   to extract title block, notes, legends, schedules and labels into the chunk
-  layer; falls back to a placeholder when disabled.
+  layer. Scanned/image-based PDFs fall back to an OCR-needed placeholder unless
+  an optional PDF renderer is available in the runtime.
 - BOQ source validation: the QA agent checks that each generated item's cited
   source resolves to a real indexed drawing/document (method/spec codes are
   accepted) and raises a query for any unverified reference.

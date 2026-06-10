@@ -3,19 +3,26 @@ import "server-only";
 import { runAiJson } from "@/lib/ai/run";
 import { isVisionEnabled } from "@/lib/documents/vision";
 
+/* eslint-disable no-new-func */
+
 type RenderedPdfPage = {
   pageNumber: number;
   dataUrl: string;
 };
 
+async function optionalImport<T>(specifier: string): Promise<T> {
+  const importer = new Function("specifier", "return import(specifier)") as (
+    specifier: string
+  ) => Promise<T>;
+  return importer(specifier);
+}
+
 async function renderPdfPages(
   buffer: Buffer,
   maxPages: number
 ): Promise<RenderedPdfPage[]> {
-  // @ts-ignore - dependency is declared in package.json and may not exist until install.
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  // @ts-ignore - dependency is declared in package.json and may not exist until install.
-  const canvas = await import("@napi-rs/canvas");
+  const pdfjs = await optionalImport<any>("pdfjs-dist/legacy/build/pdf.mjs");
+  const canvas = await optionalImport<any>("@napi-rs/canvas");
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(buffer),
     disableWorker: true,
