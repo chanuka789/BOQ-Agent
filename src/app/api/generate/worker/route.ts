@@ -12,6 +12,10 @@ import { getAgentContext } from "@/lib/documents/retrieve";
 import { buildBoqGeneratorSystemPrompt } from "@/prompts/boq-generator";
 import type { ProjectFileRow, ProjectRow } from "@/lib/db/types";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
 type GenerationResult = {
   boq_items?: Array<{
     item_no?: string;

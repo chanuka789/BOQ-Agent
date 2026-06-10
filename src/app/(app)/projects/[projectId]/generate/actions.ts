@@ -1,6 +1,7 @@
 "use server";
 
 import { after } from "next/server";
+import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { addActivityLog } from "@/lib/db/activity";
@@ -11,8 +12,31 @@ import { createGeneration } from "@/lib/db/generations";
 import { getProjectTemplates } from "@/lib/db/templates";
 import { assertProjectAccess } from "@/lib/db/projects";
 import { requireCurrentAppUser } from "@/lib/db/users";
-import { runBoqGeneration } from "@/lib/generation/run-boq-generation";
 import type { ProjectRow } from "@/lib/db/types";
+
+async function triggerCoordinator(params: {
+  projectId: string;
+  jobId: string;
+  generationId: string;
+}) {
+  let baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  try {
+    const host = (await headers()).get("host");
+    if (host) baseUrl = `${host.includes("localhost") ? "http" : "https"}://${host}`;
+  } catch {
+    /* use default */
+  }
+  const secret = process.env.INTERNAL_WORKER_SECRET || "boq-agent-secret-123";
+  try {
+    await fetch(`${baseUrl}/api/generate/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-worker-secret": secret },
+      body: JSON.stringify(params)
+    });
+  } catch (error) {
+    console.error("Failed to trigger generation coordinator:", error);
+  }
+}
 
 export async function queueGenerationAction(formData: FormData) {
   const user = await requireCurrentAppUser();
@@ -64,8 +88,11 @@ export async function queueGenerationAction(formData: FormData) {
     details: { jobId: job.id, generationId: generation.id }
   });
 
-  // Run the generation after the response is sent so the page updates immediately
-  after(() => runBoqGeneration(projectId, job.id, generation.id));
+  // Trigger the coordinator route (long maxDuration) after the response is sent
+  // so the page updates immediately and the heavy work runs with enough time.
+  after(() =>
+    triggerCoordinator({ projectId, jobId: job.id, generationId: generation.id })
+  );
 
   revalidatePath(`/projects/${projectId}/generate`);
 }
