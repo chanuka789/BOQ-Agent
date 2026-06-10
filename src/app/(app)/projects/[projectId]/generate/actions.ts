@@ -12,6 +12,7 @@ import { createGeneration } from "@/lib/db/generations";
 import { getProjectTemplates } from "@/lib/db/templates";
 import { assertProjectAccess } from "@/lib/db/projects";
 import { requireCurrentAppUser } from "@/lib/db/users";
+import { runBoqGeneration } from "@/lib/generation/run-boq-generation";
 import type { ProjectRow } from "@/lib/db/types";
 
 async function triggerCoordinator(params: {
@@ -28,13 +29,20 @@ async function triggerCoordinator(params: {
   }
   const secret = process.env.INTERNAL_WORKER_SECRET || "boq-agent-secret-123";
   try {
-    await fetch(`${baseUrl}/api/generate/run`, {
+    const res = await fetch(`${baseUrl}/api/generate/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-worker-secret": secret },
       body: JSON.stringify(params)
     });
+    if (!res.ok) {
+      throw new Error(`Coordinator route returned ${res.status}: ${await res.text()}`);
+    }
   } catch (error) {
-    console.error("Failed to trigger generation coordinator:", error);
+    // Self-heal: if the dedicated route is unreachable (middleware/deployment
+    // protection/network), run the coordinator inline so the generation never
+    // sits stuck at "queued".
+    console.error("Coordinator route trigger failed, running inline:", error);
+    await runBoqGeneration(params.projectId, params.jobId, params.generationId);
   }
 }
 
@@ -93,6 +101,30 @@ export async function queueGenerationAction(formData: FormData) {
   after(() =>
     triggerCoordinator({ projectId, jobId: job.id, generationId: generation.id })
   );
+
+  revalidatePath(`/projects/${projectId}/generate`);
+}
+
+/**
+ * Restart a generation that never left "queued" (e.g. the coordinator trigger
+ * was blocked). Creates a fresh job and re-triggers the coordinator.
+ */
+export async function restartGenerationAction(formData: FormData) {
+  const user = await requireCurrentAppUser();
+  const projectId = z.string().uuid().parse(formData.get("projectId"));
+  const generationId = z.string().uuid().parse(formData.get("generationId"));
+
+  await assertProjectAccess(projectId, user.id);
+
+  const job = await createGenerationJob(projectId, generationId);
+  await addActivityLog({
+    projectId,
+    userId: user.id,
+    action: "generation.restarted",
+    details: { jobId: job.id, generationId }
+  });
+
+  after(() => triggerCoordinator({ projectId, jobId: job.id, generationId }));
 
   revalidatePath(`/projects/${projectId}/generate`);
 }

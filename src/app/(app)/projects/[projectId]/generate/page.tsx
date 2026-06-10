@@ -20,7 +20,7 @@ import type {
   ProjectBrief
 } from "@/lib/db/types";
 import { moveGenerationToRecycleBinAction } from "@/app/(app)/recycle-bin/actions";
-import { queueGenerationAction } from "./actions";
+import { queueGenerationAction, restartGenerationAction } from "./actions";
 
 export default async function GeneratePage({
   params
@@ -146,6 +146,16 @@ export default async function GeneratePage({
             {agentLogs.length > 0 ? <ProcessingLog logs={agentLogs} /> : null}
 
             <div className="mt-4 flex flex-wrap gap-2">
+              {latest.status === "queued" ? (
+                <form action={restartGenerationAction}>
+                  <input type="hidden" name="projectId" value={projectId} />
+                  <input type="hidden" name="generationId" value={latest.id} />
+                  <button className="btn btn-primary" type="submit">
+                    <Play size={15} aria-hidden="true" />
+                    Start now
+                  </button>
+                </form>
+              ) : null}
               <Link className="btn btn-secondary" href={`/projects/${projectId}/boq-review?generation=${latest.id}`}>
                 <Table2 size={15} aria-hidden="true" />
                 Review BOQ
