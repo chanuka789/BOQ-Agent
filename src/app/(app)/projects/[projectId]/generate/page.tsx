@@ -7,13 +7,18 @@ import { SetupRequired } from "@/components/setup-required";
 import { Badge } from "@/components/status-badge";
 import { getAgentJobs } from "@/lib/db/boq";
 import { getProjectFiles } from "@/lib/db/files";
-import { getAgentLogs, getGenerations } from "@/lib/db/generations";
+import { getAgentLogs, getGenerations, getThoughts } from "@/lib/db/generations";
 import { getProjectForCurrentUser } from "@/lib/db/projects";
 import { getRules } from "@/lib/db/rules";
 import { getProjectTemplates } from "@/lib/db/templates";
 import { getProjectBrief } from "@/lib/generation/project-brief";
 import { formatDate } from "@/lib/format";
-import type { AgentLogStatus, BoqGenerationAgentLogRow, ProjectBrief } from "@/lib/db/types";
+import type {
+  AgentLogStatus,
+  BoqGenerationAgentLogRow,
+  BoqGenerationThoughtRow,
+  ProjectBrief
+} from "@/lib/db/types";
 import { moveGenerationToRecycleBinAction } from "@/app/(app)/recycle-bin/actions";
 import { queueGenerationAction } from "./actions";
 
@@ -35,20 +40,21 @@ export default async function GeneratePage({
     const sourceFiles = files.filter((file) => file.file_type === "source_document");
 
     const latest = generations[0] ?? null;
-    const [agentLogs, brief, jobs] = latest
+    const [agentLogs, brief, jobs, thoughts] = latest
       ? await Promise.all([
           getAgentLogs(latest.id).catch(() => []),
           getProjectBrief(latest.id).catch(() => null),
-          getAgentJobs(projectId).catch(() => [])
+          getAgentJobs(projectId).catch(() => []),
+          getThoughts(latest.id).catch(() => [])
         ])
-      : [[], null, []];
+      : [[], null, [], []];
     const isRunning =
       latest?.status === "running" || latest?.status === "queued";
     const currentStep = jobs[0]?.current_step ?? null;
 
     return (
       <>
-        {isRunning ? <AutoRefresh /> : null}
+        {isRunning ? <AutoRefresh intervalMs={2500} /> : null}
         <PageHeader
           title="Generate BOQ"
           description="Each run creates a separate, stored generation. Old generations are never overwritten."
@@ -132,6 +138,10 @@ export default async function GeneratePage({
                   : "No agent activity recorded for this generation."}
               </p>
             )}
+
+            {thoughts.length > 0 ? (
+              <ReasoningFeed thoughts={thoughts} live={isRunning} />
+            ) : null}
 
             {agentLogs.length > 0 ? <ProcessingLog logs={agentLogs} /> : null}
 
@@ -282,6 +292,62 @@ function AgentCountChip({
     <Badge tone={tone}>
       {label}: {count}
     </Badge>
+  );
+}
+
+function ReasoningFeed({
+  thoughts,
+  live
+}: {
+  thoughts: BoqGenerationThoughtRow[];
+  live: boolean;
+}) {
+  const phaseDot: Record<string, string> = {
+    coordinator: "bg-[var(--primary)]",
+    section: "bg-[var(--success)]",
+    qa: "bg-[var(--warning)]",
+    export: "bg-[var(--muted)]"
+  };
+  return (
+    <div className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <h3 className="text-sm font-extrabold text-[var(--foreground)]">
+          Agent reasoning {live ? "· live" : ""}
+        </h3>
+        {live ? (
+          <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-[var(--success)]" />
+        ) : null}
+      </div>
+      <ol className="space-y-3">
+        {thoughts.map((t) => (
+          <li key={t.id} className="flex gap-3">
+            <span
+              className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${phaseDot[t.phase ?? ""] ?? "bg-[var(--muted)]"}`}
+              aria-hidden="true"
+            />
+            <div className="min-w-0">
+              <p className="text-xs font-extrabold text-[var(--foreground)]">
+                {t.agent_label}
+                {t.kind === "reasoning" ? (
+                  <span className="ml-2 rounded bg-[var(--primary-soft)] px-1.5 py-0.5 text-[10px] font-bold uppercase text-[var(--primary)]">
+                    thinking
+                  </span>
+                ) : null}
+              </p>
+              <p
+                className={`mt-0.5 whitespace-pre-wrap text-sm leading-6 ${
+                  t.kind === "reasoning"
+                    ? "italic text-[var(--muted)]"
+                    : "text-[var(--foreground)]"
+                }`}
+              >
+                {t.thought}
+              </p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 

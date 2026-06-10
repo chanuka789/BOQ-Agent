@@ -3,9 +3,50 @@ import type {
   BoqGenerationAgentLogRow,
   BoqGenerationExportRow,
   BoqGenerationRow,
+  BoqGenerationThoughtRow,
   AgentLogStatus,
   GenerationStatus
 } from "@/lib/db/types";
+
+/** Append a reasoning/thinking entry to the live generation feed. Best-effort. */
+export async function addThought(input: {
+  generationId: string;
+  projectId: string;
+  agentId: string;
+  agentLabel: string;
+  phase?: string | null;
+  kind?: "thought" | "reasoning" | "status";
+  thought: string;
+}) {
+  try {
+    const sql = getSql();
+    await sql`
+      insert into boq_generation_thoughts (
+        generation_id, project_id, agent_id, agent_label, phase, kind, thought
+      )
+      values (
+        ${input.generationId}, ${input.projectId}, ${input.agentId}, ${input.agentLabel},
+        ${input.phase ?? null}, ${input.kind ?? "thought"}, ${input.thought.slice(0, 4000)}
+      )
+    `;
+  } catch (error) {
+    console.error("Failed to add thought:", error);
+  }
+}
+
+export async function getThoughts(
+  generationId: string,
+  limit = 250
+): Promise<BoqGenerationThoughtRow[]> {
+  const sql = getSql();
+  const rows = (await sql`
+    select * from boq_generation_thoughts
+    where generation_id = ${generationId}
+    order by seq
+    limit ${limit}
+  `) as BoqGenerationThoughtRow[];
+  return rows;
+}
 
 export async function createGeneration({
   projectId,

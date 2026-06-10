@@ -4,6 +4,7 @@ import { resolveScope, SCOPES } from "@/lib/agents/catalog";
 import { runAiJson } from "@/lib/ai/run";
 import type { QualityMode } from "@/lib/ai/model-config";
 import { getSql } from "@/lib/db/client";
+import { addThought } from "@/lib/db/generations";
 import type { ProjectBrief, ProjectBriefRow, ProjectRow } from "@/lib/db/types";
 
 const SCOPE_NAMES = SCOPES.map((s) => s.scope);
@@ -77,6 +78,7 @@ export async function buildProjectBrief({
     const result = await runAiJson<ProjectBrief>({
       task: "project_understanding",
       mode,
+      reasoning: true,
       maxTokens: 3500,
       context: { projectId: project.id, generationId, agentId: "coordinator" },
       messages: [
@@ -109,6 +111,34 @@ export async function buildProjectBrief({
       values (${project.id}, ${generationId}, ${JSON.stringify(brief)}::jsonb)
       on conflict (generation_id) do update set brief = excluded.brief, updated_at = now()
     `;
+
+    if (generationId) {
+      if (result.reasoning) {
+        await addThought({
+          generationId,
+          projectId: project.id,
+          agentId: "coordinator",
+          agentLabel: "Lead Coordinator",
+          phase: "coordinator",
+          kind: "reasoning",
+          thought: result.reasoning
+        });
+      }
+      const scopesText = (brief.scopes_present ?? []).join(", ") || "the declared scope";
+      await addThought({
+        generationId,
+        projectId: project.id,
+        agentId: "coordinator",
+        agentLabel: "Lead Coordinator",
+        phase: "coordinator",
+        kind: "thought",
+        thought:
+          `Understood the project${brief.project_name ? `: ${brief.project_name}` : ""}` +
+          `${brief.client_name ? ` for ${brief.client_name}` : ""}. ` +
+          `${(brief.drawings ?? []).length} drawing(s) reviewed. I will measure: ${scopesText}.` +
+          (brief.notes ? ` Note: ${brief.notes}` : "")
+      });
+    }
 
     return brief;
   } catch (error) {

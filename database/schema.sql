@@ -618,3 +618,20 @@ drop trigger if exists project_briefs_set_updated_at on project_briefs;
 create trigger project_briefs_set_updated_at
 before update on project_briefs
 for each row execute function set_updated_at();
+
+-- ===========================================================================
+-- Live agent reasoning stream (also in migration_agent_thoughts.sql)
+-- ===========================================================================
+  generation_id uuid not null references boq_generations(id) on delete cascade,
+  project_id uuid not null references projects(id) on delete cascade,
+  agent_id text not null,
+  agent_label text not null,
+  phase text,                       -- coordinator | section | qa | export
+  kind text not null default 'thought',  -- thought | reasoning | status
+  thought text not null,
+  seq bigserial,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_agent_thoughts_generation
+  on boq_generation_thoughts(generation_id, seq);

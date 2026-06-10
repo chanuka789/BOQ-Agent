@@ -13,6 +13,7 @@ export type AiRunContext = {
 
 export type AiJsonResult<T> = {
   data: T;
+  reasoning: string | null;
   model: string;
   usage: { promptTokens: number; completionTokens: number; totalTokens: number };
   attempts: number;
@@ -29,6 +30,7 @@ export async function runAiJson<T>({
   messages,
   temperature = 0.1,
   maxTokens = 4000,
+  reasoning = false,
   context
 }: {
   task: AiTask;
@@ -36,6 +38,7 @@ export async function runAiJson<T>({
   messages: AiMessage[];
   temperature?: number;
   maxTokens?: number;
+  reasoning?: boolean;
   context?: AiRunContext;
 }): Promise<AiJsonResult<T>> {
   const chain = modelChain(task, mode);
@@ -49,7 +52,7 @@ export async function runAiJson<T>({
     const model = chain[attempt];
     const startedAt = Date.now();
     try {
-      const result = await callOpenRouter({ model, messages, temperature, maxTokens });
+      const result = await callOpenRouter({ model, messages, temperature, maxTokens, reasoning });
       const data = parseStrictJson<T>(result.content);
 
       await logAiUsage({
@@ -67,7 +70,13 @@ export async function runAiJson<T>({
         durationMs: Date.now() - startedAt
       });
 
-      return { data, model: result.model, usage: result.usage, attempts: attempt + 1 };
+      return {
+        data,
+        reasoning: result.reasoning,
+        model: result.model,
+        usage: result.usage,
+        attempts: attempt + 1
+      };
     } catch (error) {
       lastError = error;
       const message = error instanceof Error ? error.message : String(error);

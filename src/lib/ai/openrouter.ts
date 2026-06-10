@@ -11,12 +11,13 @@ export type AiMessage = {
 
 export type OpenRouterResult = {
   content: string;
+  reasoning: string | null;
   model: string;
   usage: { promptTokens: number; completionTokens: number; totalTokens: number };
 };
 
 type RawResponse = {
-  choices?: Array<{ message?: { content?: string } }>;
+  choices?: Array<{ message?: { content?: string; reasoning?: string } }>;
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
@@ -31,12 +32,14 @@ export async function callOpenRouter({
   messages,
   temperature = 0.1,
   maxTokens = 4000,
+  reasoning = false,
   signal
 }: {
   model: string;
   messages: AiMessage[];
   temperature?: number;
   maxTokens?: number;
+  reasoning?: boolean;
   signal?: AbortSignal;
 }): Promise<OpenRouterResult> {
   if (!process.env.OPENROUTER_API_KEY) {
@@ -63,7 +66,10 @@ export async function callOpenRouter({
       messages,
       temperature,
       max_tokens: maxTokens,
-      response_format: { type: "json_object" }
+      response_format: { type: "json_object" },
+      // Ask reasoning-capable models to expose their chain-of-thought (ignored
+      // by models that don't support it).
+      ...(reasoning ? { reasoning: { enabled: true } } : {})
     })
   });
 
@@ -80,6 +86,7 @@ export async function callOpenRouter({
 
   return {
     content,
+    reasoning: json.choices?.[0]?.message?.reasoning ?? null,
     model: json.model ?? model,
     usage: {
       promptTokens: json.usage?.prompt_tokens ?? 0,
