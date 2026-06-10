@@ -4,7 +4,11 @@ const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/api/upload",
-  "/api/generate/worker(.*)"
+  // Internal server-to-server routes guarded by INTERNAL_WORKER_SECRET, and
+  // Vercel Blob upload callbacks — these arrive without Clerk cookies.
+  "/api/generate/run(.*)",
+  "/api/generate/worker(.*)",
+  "/api/previous-boq/upload"
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
