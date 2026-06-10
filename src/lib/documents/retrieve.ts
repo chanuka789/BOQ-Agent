@@ -1,6 +1,12 @@
 import "server-only";
 
-import { getRelevantChunks, getSchedulesForScope } from "@/lib/db/documents";
+import { embedOne, isEmbeddingsEnabled } from "@/lib/ai/embeddings";
+import {
+  getRelevantChunks,
+  getRelevantChunksByEmbedding,
+  getSchedulesForScope
+} from "@/lib/db/documents";
+import type { DocumentChunkRow } from "@/lib/db/types";
 
 export type AgentContext = {
   hasContent: boolean;
@@ -31,10 +37,27 @@ export async function getAgentContext({
   keywords?: string[];
   maxChunks?: number;
 }): Promise<AgentContext> {
-  const [chunks, schedules] = await Promise.all([
-    getRelevantChunks({ projectId, scope, sectionCode, trade, keywords, limit: maxChunks }),
-    getSchedulesForScope(projectId, scope)
-  ]);
+  // Semantic (RAG) retrieval when embeddings are enabled; keyword ranking
+  // otherwise (or when the query can't be embedded / returns nothing).
+  let chunks: DocumentChunkRow[] = [];
+  if (isEmbeddingsEnabled()) {
+    const query = [scope, sectionCode ?? "", trade ?? "", ...keywords]
+      .filter(Boolean)
+      .join(" ");
+    const queryEmbedding = await embedOne(query);
+    if (queryEmbedding) {
+      chunks = await getRelevantChunksByEmbedding({
+        projectId,
+        scope,
+        queryEmbedding,
+        limit: maxChunks
+      });
+    }
+  }
+  if (chunks.length === 0) {
+    chunks = await getRelevantChunks({ projectId, scope, sectionCode, trade, keywords, limit: maxChunks });
+  }
+  const schedules = await getSchedulesForScope(projectId, scope);
 
   if (chunks.length === 0 && schedules.length === 0) {
     return { hasContent: false, contextText: "", refs: [], chunkCount: 0, scheduleCount: 0 };

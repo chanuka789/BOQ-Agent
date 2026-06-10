@@ -20,6 +20,7 @@ export type ChunkInput = {
   sourceFileName: string | null;
   content: string;
   metadata?: Record<string, unknown>;
+  embedding?: number[] | null;
 };
 
 export async function deleteFileChunks(fileId: string) {
@@ -39,7 +40,7 @@ export async function insertChunksBulk(
     "project_id", "file_id", "page_number", "chunk_index", "document_type",
     "scope", "discipline", "section", "section_code", "measurement_standard",
     "trade", "drawing_ref", "revision_ref", "source_file_name", "char_count",
-    "content", "metadata"
+    "content", "metadata", "embedding"
   ];
 
   const placeholders: string[] = [];
@@ -47,9 +48,12 @@ export async function insertChunksBulk(
 
   chunks.forEach((chunk, i) => {
     const offset = i * columns.length;
-    const ph = columns.map((col, c) =>
-      col === "metadata" ? `$${offset + c + 1}::jsonb` : `$${offset + c + 1}`
-    );
+    const ph = columns.map((col, c) => {
+      const n = offset + c + 1;
+      if (col === "metadata") return `$${n}::jsonb`;
+      if (col === "embedding") return `$${n}::vector`;
+      return `$${n}`;
+    });
     placeholders.push(`(${ph.join(", ")})`);
     params.push(
       projectId,
@@ -68,7 +72,8 @@ export async function insertChunksBulk(
       chunk.sourceFileName,
       chunk.content.length,
       chunk.content,
-      JSON.stringify(chunk.metadata ?? {})
+      JSON.stringify(chunk.metadata ?? {}),
+      chunk.embedding && chunk.embedding.length > 0 ? `[${chunk.embedding.join(",")}]` : null
     );
   });
 
@@ -196,6 +201,59 @@ export async function getRelevantChunks({
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map((s) => s.chunk);
+}
+
+/**
+ * Semantic (RAG) retrieval via pgvector cosine distance. Used when embeddings
+ * are enabled and a query vector is available; otherwise callers use the
+ * keyword ranking above.
+ */
+export async function getRelevantChunksByEmbedding({
+  projectId,
+  scope,
+  queryEmbedding,
+  limit = 16
+}: {
+  projectId: string;
+  scope: string;
+  queryEmbedding: number[];
+  limit?: number;
+}): Promise<DocumentChunkRow[]> {
+  const sql = getSql() as any;
+  const vec = `[${queryEmbedding.join(",")}]`;
+  const rows = (await sql.query(
+    `select * from document_chunks
+     where project_id = $1
+       and (scope = $2 or scope is null or scope = 'General')
+       and embedding is not null
+     order by embedding <=> $3::vector
+     limit $4`,
+    [projectId, scope, vec, limit]
+  )) as DocumentChunkRow[];
+  return rows;
+}
+
+/** Distinct drawing refs and source file names known from the indexed documents,
+ *  used to validate that generated items cite real sources. */
+export async function getKnownSourceTokens(projectId: string): Promise<string[]> {
+  const sql = getSql();
+  const chunkRows = (await sql`
+    select distinct drawing_ref, source_file_name from document_chunks
+    where project_id = ${projectId}
+  `) as Array<{ drawing_ref: string | null; source_file_name: string | null }>;
+  const scheduleRows = (await sql`
+    select distinct source_file_name from document_schedules where project_id = ${projectId}
+  `) as Array<{ source_file_name: string | null }>;
+
+  const tokens = new Set<string>();
+  for (const r of chunkRows) {
+    if (r.drawing_ref) tokens.add(r.drawing_ref.toLowerCase());
+    if (r.source_file_name) tokens.add(r.source_file_name.toLowerCase());
+  }
+  for (const r of scheduleRows) {
+    if (r.source_file_name) tokens.add(r.source_file_name.toLowerCase());
+  }
+  return Array.from(tokens);
 }
 
 export async function getSchedulesForScope(

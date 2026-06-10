@@ -11,6 +11,8 @@ import {
 import { classifyChunk, detectScheduleType } from "@/lib/documents/classify";
 import { extractStructured } from "@/lib/documents/extract";
 import { parseSchedule } from "@/lib/documents/schedules";
+import { interpretDrawing } from "@/lib/documents/vision";
+import { embedTexts, isEmbeddingsEnabled } from "@/lib/ai/embeddings";
 import type { ProjectFileRow, ProjectRow } from "@/lib/db/types";
 
 const MAX_CHUNK_CHARS = 1400;
@@ -138,25 +140,61 @@ export async function processProjectFile(
       }
     }
 
-    // Image / drawing files with no extractable text: record a vision-hook chunk.
+    // Image / drawing files: vision-based interpretation (best-effort).
     if (chunks.length === 0 && extraction.kind === "image") {
-      const cls = classifyChunk(file.file_name, file.file_name, project.measurement_standard);
-      chunks.push({
-        pageNumber: 1,
-        chunkIndex: 0,
-        documentType: "drawing",
-        scope: file.scope ?? cls.scope,
-        discipline: cls.discipline,
-        section: null,
-        sectionCode: cls.sectionCode,
-        measurementStandard: project.measurement_standard,
-        trade: null,
-        drawingRef: cls.drawingRef,
-        revisionRef: null,
-        sourceFileName: file.file_name,
-        content: `[Drawing image: ${file.file_name}] — vision-based interpretation pending.`,
-        metadata: { kind: "image", vision: true, storage_url: file.storage_url }
-      });
+      const interpreted = await interpretDrawing(file, { projectId: project.id });
+      if (interpreted) {
+        addChunks(interpreted, 1);
+        if (schedulesStored < MAX_SCHEDULES_PER_FILE) {
+          const type = detectScheduleType(interpreted);
+          if (type) {
+            const parsed = await parseSchedule(type, interpreted, { projectId: project.id });
+            if (parsed.rows.length > 0) {
+              const { scope } = classifyChunk(interpreted, file.file_name, project.measurement_standard);
+              await insertSchedule({
+                projectId: project.id,
+                fileId: file.id,
+                scheduleType: type,
+                scope: file.scope ?? scope,
+                discipline: null,
+                drawingRef: null,
+                pageNumber: 1,
+                sourceFileName: file.file_name,
+                columns: parsed.columns,
+                rows: parsed.rows
+              });
+              schedulesStored += 1;
+            }
+          }
+        }
+      } else {
+        const cls = classifyChunk(file.file_name, file.file_name, project.measurement_standard);
+        chunks.push({
+          pageNumber: 1,
+          chunkIndex: 0,
+          documentType: "drawing",
+          scope: file.scope ?? cls.scope,
+          discipline: cls.discipline,
+          section: null,
+          sectionCode: cls.sectionCode,
+          measurementStandard: project.measurement_standard,
+          trade: null,
+          drawingRef: cls.drawingRef,
+          revisionRef: null,
+          sourceFileName: file.file_name,
+          content: `[Drawing image: ${file.file_name}] — enable VISION to interpret this drawing.`,
+          metadata: { kind: "image", vision: true, storage_url: file.storage_url }
+        });
+      }
+    }
+
+    // Semantic search support: embed chunk content for RAG retrieval (opt-in).
+    if (isEmbeddingsEnabled() && chunks.length > 0) {
+      for (let i = 0; i < chunks.length; i += 50) {
+        const batch = chunks.slice(i, i + 50);
+        const vectors = await embedTexts(batch.map((c) => c.content));
+        if (vectors) batch.forEach((c, j) => (c.embedding = vectors[j]));
+      }
     }
 
     await deleteFileChunks(file.id);

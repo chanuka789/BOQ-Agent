@@ -10,6 +10,7 @@ import { runAiJson } from "@/lib/ai/run";
 import { insertBoqQueriesBulk, updateAgentJob } from "@/lib/db/boq";
 import { getSql } from "@/lib/db/client";
 import { getProjectFiles } from "@/lib/db/files";
+import { getKnownSourceTokens } from "@/lib/db/documents";
 import { processProjectDocuments } from "@/lib/documents/process";
 import { getGeneration, updateGenerationStatus, upsertAgentLog } from "@/lib/db/generations";
 import { extractFileText } from "@/lib/documents/extractor";
@@ -428,7 +429,28 @@ export async function runBoqGeneration(
       (i) => !i.source_reference || i.source_reference.trim() === ""
     );
 
+    // BOQ source validation: confirm each cited source resolves to a real indexed
+    // document (drawing/file). Standard/spec-code citations are accepted. Only
+    // runs when the project has processed document chunks.
+    const knownTokens = await getKnownSourceTokens(projectId).catch(() => [] as string[]);
+    const standardRefPattern = /(pomi|nrm2|nrm1|division|section|\d{2}\s?\d{2}\s?\d{2}|\d+\.\d+)/i;
+    const unverifiedRef =
+      knownTokens.length > 0
+        ? measured.filter((i) => {
+            const ref = (i.source_reference ?? "").trim().toLowerCase();
+            if (!ref) return false; // already covered by missingRef
+            if (standardRefPattern.test(ref)) return false; // method/spec code is fine
+            return !knownTokens.some((t) => ref.includes(t) || t.includes(ref));
+          })
+        : [];
+
     const qaQueries = [
+      ...unverifiedRef.slice(0, 20).map((i) => ({
+        issue: `Unverified source reference "${i.source_reference}" on: "${i.description.slice(0, 100)}"`,
+        clarification_needed:
+          "QA Agent (source validation): this reference does not match any uploaded drawing or document. Confirm the correct drawing/spec/schedule reference.",
+        source_reference: i.source_reference ?? null
+      })),
       ...missingUnit.slice(0, 25).map((i) => ({
         issue: `Missing unit on measured item: "${i.description.slice(0, 120)}"`,
         clarification_needed:
@@ -491,7 +513,7 @@ export async function runBoqGeneration(
         status: "completed",
         progress: 100,
         modelName: qaModel,
-        statusText: `Removed ${duplicatesToDelete.length} duplicate(s); flagged ${missingUnit.length} unit, ${missingRef.length} source-reference and ${llmQaCount} review issue(s) as queries.`,
+        statusText: `Removed ${duplicatesToDelete.length} duplicate(s); flagged ${missingUnit.length} unit, ${missingRef.length} missing-ref, ${unverifiedRef.length} unverified-source and ${llmQaCount} review issue(s) as queries.`,
         queriesCount: qaQueries.length
       });
     }
