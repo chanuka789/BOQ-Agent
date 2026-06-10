@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { SetupRequired } from "@/components/setup-required";
 import { Badge } from "@/components/status-badge";
+import { getAgentJobs } from "@/lib/db/boq";
 import { getProjectFiles } from "@/lib/db/files";
 import { getAgentLogs, getGenerations } from "@/lib/db/generations";
 import { getProjectForCurrentUser } from "@/lib/db/projects";
@@ -34,11 +35,16 @@ export default async function GeneratePage({
     const sourceFiles = files.filter((file) => file.file_type === "source_document");
 
     const latest = generations[0] ?? null;
-    const [agentLogs, brief] = latest
-      ? await Promise.all([getAgentLogs(latest.id), getProjectBrief(latest.id)])
-      : [[], null];
+    const [agentLogs, brief, jobs] = latest
+      ? await Promise.all([
+          getAgentLogs(latest.id).catch(() => []),
+          getProjectBrief(latest.id).catch(() => null),
+          getAgentJobs(projectId).catch(() => [])
+        ])
+      : [[], null, []];
     const isRunning =
       latest?.status === "running" || latest?.status === "queued";
+    const currentStep = jobs[0]?.current_step ?? null;
 
     return (
       <>
@@ -122,7 +128,7 @@ export default async function GeneratePage({
             ) : (
               <p className="mt-4 text-sm text-[var(--muted)]">
                 {isRunning
-                  ? "Spawning agents…"
+                  ? currentStep ?? "Starting coordinator…"
                   : "No agent activity recorded for this generation."}
               </p>
             )}

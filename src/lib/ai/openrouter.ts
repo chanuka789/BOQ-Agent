@@ -45,9 +45,13 @@ export async function callOpenRouter({
 
   const baseUrl = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
 
+  // Guard against a hung upstream call stalling the whole generation.
+  const timeoutMs = Number(process.env.AI_REQUEST_TIMEOUT_MS || 120000);
+  const requestSignal = signal ?? AbortSignal.timeout(timeoutMs);
+
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
-    signal,
+    signal: requestSignal,
     headers: {
       Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
       "Content-Type": "application/json",

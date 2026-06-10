@@ -32,8 +32,8 @@ export default async function DocumentReviewPage({
     const [{ project }, files, chunkStats, schedules] = await Promise.all([
       getProjectForCurrentUser(projectId),
       getProjectFiles(projectId),
-      getProjectChunkStats(projectId),
-      getProjectSchedules(projectId)
+      getProjectChunkStats(projectId).catch(() => ({ chunks: 0, files: 0, scopes: 0 })),
+      getProjectSchedules(projectId).catch(() => [])
     ]);
     const sourceFiles = files.filter((f) => f.file_type === "source_document");
 
