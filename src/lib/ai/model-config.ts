@@ -27,6 +27,8 @@ export type AiTask =
   | "excel_export_preparation"
   | "drawing_interpretation"
   | "boq_source_validation"
+  | "project_understanding"
+  | "coverage_check"
   | "testing";
 
 export type QualityMode = "economy" | "balanced" | "premium";
@@ -87,6 +89,8 @@ const BASE_TASK_ROLE: Record<AiTask, ModelRole> = {
   excel_export_preparation: "gemini_flash_lite",
   drawing_interpretation: "gemini_flash_lite", // vision-capable
   boq_source_validation: "gemini_flash_lite",
+  project_understanding: "gemini_flash_lite", // lead-coordinator reasoning
+  coverage_check: "gemini_flash_lite",
   testing: "glm_free"
 };
 
@@ -98,13 +102,17 @@ const MODE_OVERRIDES: Record<QualityMode, Partial<Record<AiTask, ModelRole>>> = 
     final_boq_qa: "gemini_flash_lite"
   },
   balanced: {
-    // Cheap models for drafting, premium for final review (base already does this).
+    // Cheap models for drafting; reasoning model for coordination + final review.
+    project_understanding: "minimax_m3",
+    final_boq_qa: "minimax_m3"
   },
   premium: {
     document_classification: "gemini_flash_lite",
     boq_description_generation: "minimax_m3",
     section_agent_processing: "minimax_m3",
     complex_section_generation: "minimax_m3",
+    project_understanding: "minimax_m3",
+    coverage_check: "minimax_m3",
     final_boq_qa: "minimax_m3"
   }
 };

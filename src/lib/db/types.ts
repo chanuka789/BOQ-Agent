@@ -213,6 +213,31 @@ export type BoqTemplateRow = {
   updated_at: string;
 };
 
+export type ProjectBrief = {
+  project_name?: string;
+  client_name?: string;
+  project_type?: string;
+  drawings?: Array<{
+    name?: string;
+    number?: string;
+    discipline?: string;
+    scope?: string;
+    covers?: string;
+  }>;
+  scopes_present?: string[];
+  coverage_plan?: Array<{ scope: string; expected_work: string[] }>;
+  notes?: string;
+};
+
+export type ProjectBriefRow = {
+  id: string;
+  project_id: string;
+  generation_id: string | null;
+  brief: ProjectBrief;
+  created_at: string;
+  updated_at: string;
+};
+
 export type DocumentChunkRow = {
   id: string;
   project_id: string;

@@ -10,8 +10,9 @@ import { getAgentLogs, getGenerations } from "@/lib/db/generations";
 import { getProjectForCurrentUser } from "@/lib/db/projects";
 import { getRules } from "@/lib/db/rules";
 import { getProjectTemplates } from "@/lib/db/templates";
+import { getProjectBrief } from "@/lib/generation/project-brief";
 import { formatDate } from "@/lib/format";
-import type { AgentLogStatus, BoqGenerationAgentLogRow } from "@/lib/db/types";
+import type { AgentLogStatus, BoqGenerationAgentLogRow, ProjectBrief } from "@/lib/db/types";
 import { moveGenerationToRecycleBinAction } from "@/app/(app)/recycle-bin/actions";
 import { queueGenerationAction } from "./actions";
 
@@ -33,7 +34,9 @@ export default async function GeneratePage({
     const sourceFiles = files.filter((file) => file.file_type === "source_document");
 
     const latest = generations[0] ?? null;
-    const agentLogs = latest ? await getAgentLogs(latest.id) : [];
+    const [agentLogs, brief] = latest
+      ? await Promise.all([getAgentLogs(latest.id), getProjectBrief(latest.id)])
+      : [[], null];
     const isRunning =
       latest?.status === "running" || latest?.status === "queued";
 
@@ -76,6 +79,9 @@ export default async function GeneratePage({
           <ReadinessCard label="Unit rules" value={rules.length} />
           <ReadinessCard label="Generations" value={generations.length} />
         </div>
+
+        {/* Lead coordinator project understanding */}
+        {brief ? <ProjectBriefPanel brief={brief} /> : null}
 
         {/* Live agent status for the most recent generation */}
         {latest ? (
@@ -361,6 +367,73 @@ function GenerationStatusBadge({ status }: { status: string }) {
           ? "warning"
           : "neutral";
   return <Badge tone={tone}>{status}</Badge>;
+}
+
+function ProjectBriefPanel({ brief }: { brief: ProjectBrief }) {
+  const drawings = brief.drawings ?? [];
+  const scopes = brief.scopes_present ?? [];
+  return (
+    <section className="panel mt-6 p-5">
+      <h2 className="text-base font-extrabold text-[var(--foreground)]">
+        Project understanding (lead coordinator)
+      </h2>
+      <div className="mt-2 grid gap-2 text-sm sm:grid-cols-3">
+        {brief.project_name ? (
+          <p>
+            <span className="font-bold">Project:</span> {brief.project_name}
+          </p>
+        ) : null}
+        {brief.client_name ? (
+          <p>
+            <span className="font-bold">Client:</span> {brief.client_name}
+          </p>
+        ) : null}
+        {brief.project_type ? (
+          <p>
+            <span className="font-bold">Type:</span> {brief.project_type}
+          </p>
+        ) : null}
+      </div>
+
+      {scopes.length > 0 ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-extrabold uppercase text-[var(--muted)]">
+            Mapped scopes
+          </span>
+          {scopes.map((s) => (
+            <Badge key={s} tone="info">
+              {s}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+
+      {drawings.length > 0 ? (
+        <div className="mt-4 table-shell overflow-x-auto">
+          <table className="data-table min-w-[640px]">
+            <thead>
+              <tr>
+                <th>Drawing</th>
+                <th>Number</th>
+                <th>Scope</th>
+                <th>Covers</th>
+              </tr>
+            </thead>
+            <tbody>
+              {drawings.slice(0, 30).map((d, i) => (
+                <tr key={i}>
+                  <td className="font-semibold">{d.name ?? "—"}</td>
+                  <td className="font-mono text-xs">{d.number ?? "—"}</td>
+                  <td>{d.scope ?? d.discipline ?? "—"}</td>
+                  <td className="max-w-[320px] text-xs leading-5">{d.covers ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 function ReadinessCard({ label, value }: { label: string; value: number }) {

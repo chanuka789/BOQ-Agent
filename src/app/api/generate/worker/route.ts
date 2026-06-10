@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const { projectId, trade, scope, fileIds, jobId, generationId, agent } = body;
+    const briefNote: string = typeof body.briefNote === "string" ? body.briefNote : "";
     const qualityMode: QualityMode = isQualityMode(body.qualityMode)
       ? body.qualityMode
       : "balanced";
@@ -209,6 +210,7 @@ Target agent: ${sectionLabel}
 ${isSectionAgent ? `Target section: ${project.measurement_standard} ${sectionCode} — ${sectionTitle}` : `Target trade: ${trade}`}
 Discipline scope: ${agent?.scope ?? scope ?? "Architecture + Internal Design"}
 
+${briefNote ? `Lead coordinator plan for this agent: ${briefNote}\n` : ""}
 Template / format instructions:
 ${templateStyleNotes.map((note) => `- ${note}`).join("\n")}
 ${
