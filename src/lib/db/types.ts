@@ -97,6 +97,18 @@ export type BoqGenerationAgentLogRow = {
   updated_at: string;
 };
 
+export type BoqGenerationThoughtRow = {
+  id: string;
+  generation_id: string;
+  project_id: string;
+  agent_id: string;
+  agent_label: string;
+  phase: string | null;
+  kind: "thought" | "reasoning" | "status";
+  thought: string;
+  created_at: string;
+};
+
 export type BoqGenerationExportRow = {
   id: string;
   generation_id: string;

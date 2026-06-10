@@ -18,7 +18,12 @@ import {
   findCoverageGaps
 } from "@/lib/generation/project-brief";
 import type { ProjectBrief } from "@/lib/db/types";
-import { getGeneration, updateGenerationStatus, upsertAgentLog } from "@/lib/db/generations";
+import {
+  addThought,
+  getGeneration,
+  updateGenerationStatus,
+  upsertAgentLog
+} from "@/lib/db/generations";
 import { extractFileText } from "@/lib/documents/extractor";
 import type { ProjectFileRow, ProjectRow } from "@/lib/db/types";
 
@@ -64,6 +69,7 @@ type WorkerResult = {
   success: boolean;
   trade: string;
   model?: string;
+  reasoning?: string;
   itemsCount: number;
   queriesCount: number;
   assumptionsCount: number;
@@ -136,7 +142,25 @@ export async function runBoqGeneration(
   jobId: string,
   generationId?: string | null
 ): Promise<void> {
+  // Live reasoning feed helper (no-op when there is no generation row).
+  const think = (
+    agentId: string,
+    agentLabel: string,
+    phase: string,
+    thought: string,
+    kind: "thought" | "reasoning" | "status" = "thought"
+  ) =>
+    generationId
+      ? addThought({ generationId, projectId, agentId, agentLabel, phase, kind, thought })
+      : Promise.resolve();
+
   try {
+    await think(
+      "coordinator",
+      "Lead Coordinator",
+      "coordinator",
+      "Starting the BOQ. Reading the uploaded documents and understanding the project before assigning agents…"
+    );
     await updateAgentJob(jobId, {
       status: "running",
       currentStep: "Loading project data",
@@ -236,6 +260,16 @@ export async function runBoqGeneration(
     if (runAgents.length === 0) {
       throw new Error("No applicable agents for this project standard and scope.");
     }
+
+    await think(
+      "coordinator",
+      "Lead Coordinator",
+      "coordinator",
+      `Assigning ${runAgents.length} section agent(s) to run in parallel` +
+        (skippedAgents.length > 0
+          ? `, and skipping ${skippedAgents.length} scope(s) with no relevant documents.`
+          : ".")
+    );
 
     // Record skipped agents up-front so the UI shows them immediately.
     if (generationId) {
@@ -358,6 +392,18 @@ export async function runBoqGeneration(
               queriesCount: data.queriesCount,
               assumptionsCount: data.assumptionsCount
             });
+            if (data.reasoning) {
+              await think(agent.agentId, agent.label, "section", data.reasoning, "reasoning");
+            }
+            await think(
+              agent.agentId,
+              agent.label,
+              "section",
+              data.itemsCount > 0
+                ? `Produced ${data.itemsCount} item(s)${data.queriesCount ? `, raised ${data.queriesCount} quer${data.queriesCount === 1 ? "y" : "ies"}` : ""}.`
+                : `Found no ${agent.title} work in the documents for this section.`,
+              "status"
+            );
           }
           return data;
         } catch (err) {
@@ -375,6 +421,13 @@ export async function runBoqGeneration(
               statusText: `Failed to generate ${agent.title} items.`,
               errorMessage: err instanceof Error ? err.message : String(err)
             }).catch(() => {});
+            await think(
+              agent.agentId,
+              agent.label,
+              "section",
+              `Could not complete: ${err instanceof Error ? err.message : String(err)}`,
+              "status"
+            );
           }
           return {
             success: false,
@@ -397,6 +450,12 @@ export async function runBoqGeneration(
       }
     );
 
+    await think(
+      "qa-agent",
+      "BOQ QA Agent",
+      "qa",
+      "All section agents are done. I'm now checking for duplicate items, incorrect units, missing source references and coverage gaps against the project plan…"
+    );
     await updateAgentJob(jobId, {
       status: "running",
       currentStep: "BOQ QA Agent — checking duplicates, units and missing data",
@@ -511,6 +570,7 @@ export async function runBoqGeneration(
         }>({
           task: "final_boq_qa",
           mode,
+          reasoning: true,
           maxTokens: 2000,
           context: { projectId, generationId, agentId: "qa-agent" },
           messages: [
@@ -528,6 +588,9 @@ export async function runBoqGeneration(
         }));
         llmQaCount = reviewed.length;
         qaQueries.push(...reviewed);
+        if (review.reasoning) {
+          await think("qa-agent", "BOQ QA Agent", "qa", review.reasoning, "reasoning");
+        }
       } catch (qaError) {
         console.error("LLM final QA failed (non-fatal):", qaError);
       }
@@ -536,6 +599,14 @@ export async function runBoqGeneration(
     if (qaQueries.length > 0) {
       await insertBoqQueriesBulk(projectId, qaQueries, generationId).catch(() => {});
     }
+
+    await think(
+      "qa-agent",
+      "BOQ QA Agent",
+      "qa",
+      `QA complete: removed ${duplicatesToDelete.length} duplicate(s); raised ${qaQueries.length} quer${qaQueries.length === 1 ? "y" : "ies"}.`,
+      "status"
+    );
 
     if (generationId) {
       await upsertAgentLog({
@@ -564,6 +635,14 @@ export async function runBoqGeneration(
     if (successful.length === 0 && runAgents.length > 0) {
       throw new Error("All section agents failed to execute.");
     }
+
+    await think(
+      "coordinator",
+      "Lead Coordinator",
+      "coordinator",
+      `Done. The draft BOQ has ${totalItems} item(s), ${totalQueries} quer${totalQueries === 1 ? "y" : "ies"} and ${totalAssumptions} assumption(s) — ready for your review.`,
+      "status"
+    );
 
     await updateAgentJob(jobId, {
       status: "completed",

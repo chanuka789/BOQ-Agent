@@ -17,6 +17,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 type GenerationResult = {
+  reasoning?: string;
   boq_items?: Array<{
     item_no?: string;
     section: string;
@@ -244,6 +245,7 @@ reference of each item into its source_reference. Return strict JSON only.
     const result = await runAiJson<GenerationResult>({
       task: "section_agent_processing",
       mode: qualityMode,
+      reasoning: true,
       messages: [
         { role: "system", content: tradeSystemPrompt },
         { role: "user", content: userPrompt }
@@ -251,6 +253,9 @@ reference of each item into its source_reference. Return strict JSON only.
       maxTokens: 16000,
       context: { projectId, generationId, agentId: agent?.agentId ?? `trade-${trade}` }
     });
+
+    // Prefer the model's native chain-of-thought; fall back to the explicit field.
+    const agentReasoning = (result.reasoning ?? result.data.reasoning ?? "").trim();
 
     const boqItems = result.data.boq_items ?? [];
     const queries = result.data.queries ?? [];
@@ -312,6 +317,7 @@ reference of each item into its source_reference. Return strict JSON only.
       success: true,
       trade,
       model: result.model,
+      reasoning: agentReasoning,
       itemsCount: cleanedItems.length,
       queriesCount: cleanedQueries.length,
       assumptionsCount: cleanedAssumptions.length,
