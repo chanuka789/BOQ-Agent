@@ -104,7 +104,55 @@ async function runPool<T, R>(
   return results;
 }
 
-async function buildFileSignals(files: ProjectFileRow[]): Promise<FileSignal[]> {
+async function buildFileSignals(
+  projectId: string,
+  files: ProjectFileRow[]
+): Promise<FileSignal[]> {
+  // Fast path: documents already processed into classified chunks — build the
+  // detection signals from the chunk layer instead of re-downloading and
+  // re-parsing every file (which was a major slow-down at generation start).
+  try {
+    const sql = getSql();
+    const rows = (await sql`
+      select source_file_name,
+             string_agg(distinct scope, ' ') as scopes,
+             string_agg(distinct document_type, ' ') as types,
+             max(left(content, 1500)) as sample
+      from document_chunks
+      where project_id = ${projectId}
+      group by source_file_name
+    `) as Array<{
+      source_file_name: string | null;
+      scopes: string | null;
+      types: string | null;
+      sample: string | null;
+    }>;
+
+    if (rows.length > 0) {
+      const chunkedNames = new Set(rows.map((r) => r.source_file_name));
+      const signals: FileSignal[] = rows.map((r) => ({
+        fileName: r.source_file_name ?? "document",
+        documentType: r.types,
+        scope: r.scopes,
+        textSample: `${r.scopes ?? ""} ${r.sample ?? ""}`
+      }));
+      // Files without chunks (e.g. just uploaded) fall back to name/classification.
+      for (const file of files) {
+        if (!chunkedNames.has(file.file_name)) {
+          signals.push({
+            fileName: file.file_name,
+            documentType: file.document_type,
+            scope: file.scope,
+            textSample: ""
+          });
+        }
+      }
+      return signals;
+    }
+  } catch {
+    /* fall through to extraction */
+  }
+
   return Promise.all(
     files.map(async (file) => {
       let textSample = "";
@@ -227,12 +275,15 @@ export async function runBoqGeneration(
     let skippedAgents: Array<{ agent: SectionAgent; reason: string }> = [];
 
     if (standard === "POMI" || standard === "NRM2" || standard === "NRM1") {
-      const signals = await buildFileSignals(sourceFiles);
-      // The main coordinator uses an AI pass to decide present scopes, merged
-      // with keyword detection (injected as an extra signal).
-      const aiScopes = await detectScopesWithAI(signals, mode, { projectId, generationId });
-      // Prefer the lead-coordinator brief's mapped scopes, merged with detection.
-      const mappedScopes = [...(brief?.scopes_present ?? []), ...aiScopes].join(" ");
+      const signals = await buildFileSignals(projectId, sourceFiles);
+      // The brief already mapped the scopes with a reasoning pass — only spend
+      // an extra AI scope-detection call when the brief produced none.
+      const briefScopes = brief?.scopes_present ?? [];
+      const aiScopes =
+        briefScopes.length > 0
+          ? []
+          : await detectScopesWithAI(signals, mode, { projectId, generationId });
+      const mappedScopes = [...briefScopes, ...aiScopes].join(" ");
       const enrichedSignals =
         mappedScopes.trim().length > 0
           ? [...signals, { fileName: "coordinator-detection", textSample: mappedScopes }]

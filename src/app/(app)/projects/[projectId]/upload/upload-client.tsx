@@ -70,11 +70,24 @@ export function UploadClient({ projectId }: { projectId: string }) {
                   ...item,
                   progress: 100,
                   status: "complete",
-                  message: "Upload complete. Metadata will appear after Vercel confirms the callback."
+                  message: "Upload complete. Indexing for the AI agents…"
                 }
               : item
           )
         );
+
+        // Pre-process into the structured knowledge layer now, so generation
+        // starts instantly later. Delayed so the blob callback can record the
+        // file first; fire-and-forget (generation re-checks as a fallback).
+        if (role === "source_document") {
+          setTimeout(() => {
+            void fetch("/api/documents/process", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ projectId })
+            }).catch(() => {});
+          }, 4000);
+        }
       } catch (error) {
         setStates((current) =>
           current.map((item) =>
