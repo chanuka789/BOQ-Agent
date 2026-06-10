@@ -10,6 +10,7 @@ import { runAiJson } from "@/lib/ai/run";
 import { insertBoqQueriesBulk, updateAgentJob } from "@/lib/db/boq";
 import { getSql } from "@/lib/db/client";
 import { getProjectFiles } from "@/lib/db/files";
+import { processProjectDocuments } from "@/lib/documents/process";
 import { getGeneration, updateGenerationStatus, upsertAgentLog } from "@/lib/db/generations";
 import { extractFileText } from "@/lib/documents/extractor";
 import type { ProjectFileRow, ProjectRow } from "@/lib/db/types";
@@ -152,6 +153,20 @@ export async function runBoqGeneration(
 
     // Only true source documents feed generation and scope detection.
     const sourceFiles = allFiles.filter((file) => file.file_type === "source_document");
+
+    // LAYER 1 + 2 — Document extraction & intelligence. Build the structured,
+    // classified, searchable chunk/schedule layer for any not-yet-indexed file
+    // so the section agents retrieve from it (idempotent; skips indexed files).
+    await updateAgentJob(jobId, {
+      status: "running",
+      currentStep: "Processing documents — extraction & intelligence layer",
+      progress: 10
+    });
+    try {
+      await processProjectDocuments(project, sourceFiles);
+    } catch (processError) {
+      console.error("Document processing failed (agents will fall back to raw text):", processError);
+    }
 
     await updateAgentJob(jobId, {
       status: "running",

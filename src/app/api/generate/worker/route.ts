@@ -8,8 +8,9 @@ import { getProjectFiles } from "@/lib/db/files";
 import { getAppKnowledgeNotesForProject } from "@/lib/db/app-knowledge";
 import { getRules } from "@/lib/db/rules";
 import { getProjectTemplates } from "@/lib/db/templates";
+import { getAgentContext } from "@/lib/documents/retrieve";
 import { buildBoqGeneratorSystemPrompt } from "@/prompts/boq-generator";
-import type { ProjectRow } from "@/lib/db/types";
+import type { ProjectFileRow, ProjectRow } from "@/lib/db/types";
 
 type GenerationResult = {
   boq_items?: Array<{
@@ -80,25 +81,40 @@ export async function POST(req: NextRequest) {
             trade.toLowerCase().includes(r.trade.toLowerCase())
         );
 
-    // 3. Get files for this project/trade
-    const allFiles = await getProjectFiles(projectId);
-    const targetFiles =
-      fileIds && fileIds.length > 0
-        ? allFiles.filter((f) => fileIds.includes(f.id))
-        : allFiles.filter((f) => f.file_type === "source_document");
-
-    // 4. Extract text content & vision payloads
+    // 3 + 4. LAYER 3 — Agent Retrieval. Pull only the chunks/schedules relevant
+    // to this agent's scope and section, instead of passing whole documents.
+    const agentScope = agent?.scope ?? scope ?? project.scope;
     const sourceChunks: string[] = [];
     const visionPayloads: VisionPayload[] = [];
+    let sourceRefs: string[] = [];
 
-    for (const file of targetFiles) {
-      const text = await extractFileText(file.storage_url, file.mime_type, file.file_name);
-      const label = [file.document_type, file.file_name].filter(Boolean).join(" — ");
-      sourceChunks.push(`=== ${label} ===\n${text}`);
+    const context = await getAgentContext({
+      projectId,
+      scope: agentScope,
+      sectionCode: sectionCode || null,
+      trade: sectionTitle,
+      keywords: [sectionTitle, ...sectionUnits],
+      maxChunks: 16
+    });
 
-      const vision = getVisionPayload(file);
-      if (vision) {
-        visionPayloads.push(vision);
+    if (context.hasContent) {
+      sourceChunks.push(context.contextText);
+      sourceRefs = context.refs;
+    } else {
+      // Backward-compatible fallback: documents not yet processed into chunks —
+      // extract full text as before (older projects / pre-processing).
+      const allFiles = await getProjectFiles(projectId);
+      const targetFiles =
+        fileIds && fileIds.length > 0
+          ? allFiles.filter((f: ProjectFileRow) => fileIds.includes(f.id))
+          : allFiles.filter((f: ProjectFileRow) => f.file_type === "source_document");
+
+      for (const file of targetFiles) {
+        const text = await extractFileText(file.storage_url, file.mime_type, file.file_name);
+        const label = [file.document_type, file.file_name].filter(Boolean).join(" — ");
+        sourceChunks.push(`=== ${label} ===\n${text}`);
+        const vision = getVisionPayload(file);
+        if (vision) visionPayloads.push(vision);
       }
     }
 
@@ -195,12 +211,16 @@ Discipline scope: ${agent?.scope ?? scope ?? "Architecture + Internal Design"}
 
 Template / format instructions:
 ${templateStyleNotes.map((note) => `- ${note}`).join("\n")}
-
-Source document content:
+${
+  sourceRefs.length > 0
+    ? `\nAvailable source references (cite the relevant one in each item's source_reference):\n${sourceRefs.map((r) => `- ${r}`).join("\n")}\n`
+    : ""
+}
+Retrieved source content (already filtered to this agent's scope/section):
 ${sourceChunks.map((chunk, i) => `SOURCE ${i + 1}:\n${chunk}`).join("\n\n")}
 
-Generate the BOQ for this agent's remit only.
-Return strict JSON only.
+Generate the BOQ for this agent's remit only. Put the drawing/page/spec/schedule
+reference of each item into its source_reference. Return strict JSON only.
 `
       }
     ];

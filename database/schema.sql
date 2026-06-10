@@ -130,10 +130,33 @@ create table if not exists document_chunks (
   chunk_index integer not null,
   document_type text,
   scope text,
+  discipline text,
   section text,
+  section_code text,
+  measurement_standard text,
+  trade text,
+  drawing_ref text,
+  revision_ref text,
+  source_file_name text,
+  char_count integer,
   content text not null,
   metadata jsonb not null default '{}'::jsonb,
   embedding vector(1536),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists document_schedules (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references projects(id) on delete cascade,
+  file_id uuid references project_files(id) on delete cascade,
+  schedule_type text not null,
+  scope text,
+  discipline text,
+  drawing_ref text,
+  page_number integer,
+  source_file_name text,
+  columns jsonb not null default '[]'::jsonb,
+  rows jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -287,6 +310,10 @@ create table if not exists ai_usage (
 create index if not exists idx_project_members_user_id on project_members(user_id);
 create index if not exists idx_project_files_project_id on project_files(project_id);
 create index if not exists idx_document_chunks_project_id on document_chunks(project_id);
+create index if not exists idx_document_chunks_scope on document_chunks(project_id, scope, section_code);
+create index if not exists idx_document_chunks_file on document_chunks(file_id);
+create index if not exists idx_document_schedules_project on document_schedules(project_id, scope);
+create index if not exists idx_document_schedules_file on document_schedules(file_id);
 create index if not exists idx_document_chunks_embedding on document_chunks using hnsw (embedding vector_cosine_ops);
 create index if not exists idx_boq_template_profiles_active on boq_template_profiles(is_active);
 create index if not exists idx_boq_rules_lookup on boq_rules(measurement_standard, scope, trade, item_type);
